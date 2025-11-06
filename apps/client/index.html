@@ -186,6 +186,7 @@
         }
         .header-button.college-demo { background-color: #4CAF50; }
         .header-button.staff-login { background-color: #2196F3; }
+        .header-button.map-button { background-color: #FF9800; cursor: pointer; }
         .header-button.video-call { background-color: #F44336; }
         
         .status-indicator {
@@ -245,6 +246,33 @@
             border-radius: 18px;
             line-height: 1.5;
             font-size: 14px;
+        }
+        .btn-show-map {
+            margin-top: 8px;
+            padding: 8px 16px;
+            background-color: #FFB800;
+            color: #333;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-show-map:hover {
+            background-color: #FFA000;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(255, 184, 0, 0.3);
+        }
+        .map-panel {
+            margin-top: 20px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            border: 1px solid #e0e0e0;
         }
         .message-wrapper.clara p {
             background-color: var(--clara-bubble-color);

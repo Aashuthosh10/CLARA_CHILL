@@ -135,7 +135,7 @@ const authLimiter = rateLimit({
   message: 'Too many login attempts',
 });
 
-// Health check
+// Health check - must be before proxy
 app.get('/healthz', (_req, res) => res.json({ status: 'ok' }));
 
 // Auth endpoints - support both unified and staff formats
@@ -256,6 +256,54 @@ app.patch('/api/notifications/read-all', authMiddleware, (_req, res) => {
 
 app.delete('/api/notifications/:id', authMiddleware, (_req, res) => {
   res.json({ message: 'Notification deleted' });
+});
+
+// Location finding API endpoint
+app.post('/api/locations/find', apiLimiter, async (req, res) => {
+  try {
+    const { query, language = 'en' } = req.body;
+    
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Query is required' 
+      });
+    }
+
+    // Note: For now, location matching is done client-side
+    // This endpoint can be extended to use server-side matching
+    // or to return location database data if needed
+    
+    res.json({
+      success: true,
+      message: 'Location matching is handled client-side. Please use the LocationMatcher in the client app.',
+      note: 'For server-side matching, implement location matching logic here'
+    });
+  } catch (error: any) {
+    console.error('Error in location find endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
+// Get all floors and locations (optional - for future use)
+app.get('/api/locations/floors', apiLimiter, async (_req, res) => {
+  try {
+    // This endpoint can return the full location database
+    // For now, return a message indicating client-side data is used
+    res.json({
+      success: true,
+      message: 'Location data is loaded client-side. See locationsDatabase.ts in the client app.'
+    });
+  } catch (error: any) {
+    console.error('Error in floors endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
 });
 
 // REST endpoints
@@ -394,13 +442,19 @@ if (ENABLE_UNIFIED) {
   
   if (process.env.NODE_ENV === 'development') {
     // Dev: Proxy to Vite dev servers but accessible via 8080
-    app.use(clientPath === '/' ? '/' : clientPath, createProxyMiddleware({
-      target: 'http://localhost:5173',
+    
+    // Staff proxy - must be before client proxy to match /staff first
+    app.use(staffPath, createProxyMiddleware({
+      target: 'http://localhost:5174',
       changeOrigin: true,
       ws: true,
     }));
-    app.use(staffPath, createProxyMiddleware({
-      target: 'http://localhost:5174',
+    
+    // Client proxy - use catch-all that respects Express route precedence
+    // Since API routes are defined above, they'll be matched first
+    // This will only proxy requests that don't match any defined routes
+    app.use(createProxyMiddleware({
+      target: 'http://localhost:5173',
       changeOrigin: true,
       ws: true,
     }));

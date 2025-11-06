@@ -1,6 +1,9 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE
-  ? `${import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE}/api`
-  : (typeof window !== 'undefined' ? `${window.location.origin}/api` : 'http://localhost:8080/api');
+// API base URL - prioritize Vite env var, fallback to server URL
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE)
+  ? `${(import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE)}/api`
+  : (typeof window !== 'undefined' && window.location.port === '5174') 
+    ? 'http://localhost:8080/api'  // Staff app on port 5174 should use server on 8080
+    : (typeof window !== 'undefined' ? `${window.location.origin}/api` : 'http://localhost:8080/api');
 
 interface ApiResponse<T> {
   data?: T;

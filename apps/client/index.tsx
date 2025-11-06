@@ -2,6 +2,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Modality, Blob, FunctionDeclaration, Type } from '@google/genai';
 import { CallService } from './src/services/CallService';
+import MapNavigator from './src/MapNavigator';
+import LocationMatcher from './src/locationMatcher';
+import { Location } from './src/locationsDatabase';
+import './src/MapNavigator.css';
 
 // --- Helper functions for Audio Encoding/Decoding ---
 
@@ -85,6 +89,9 @@ const SpeakerIcon = ({size=20}) => (
 );
 const PencilIcon = ({size=20}) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"></path></svg>
+);
+const MapIcon = ({size=16}) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"></path></svg>
 );
 
 
@@ -359,11 +366,15 @@ const App = () => {
     const [status, setStatus] = useState('Click the microphone to speak');
     const [showPreChatModal, setShowPreChatModal] = useState(true);
     const [preChatDetails, setPreChatDetails] = useState(null);
-    const [view, setView] = useState('chat'); // 'chat', 'video_call'
+    const [view, setView] = useState('chat'); // 'chat', 'video_call', 'map'
     const [videoCallTarget, setVideoCallTarget] = useState(null);
     const [unifiedCallService, setUnifiedCallService] = useState<CallService | null>(null);
     const [isUnifiedCalling, setIsUnifiedCalling] = useState(false);
     const [activeCall, setActiveCall] = useState<{ callId: string; pc: RTCPeerConnection; localStream: MediaStream; remoteStream: MediaStream | null } | null>(null);
+    const [showMap, setShowMap] = useState(false);
+    const [currentLocation, setCurrentLocation] = useState<Location | null>(null);
+    const [currentFloor, setCurrentFloor] = useState(0);
+    const locationMatcher = useRef(new LocationMatcher()).current;
     
     const sessionPromiseRef = useRef(null);
     const inputAudioContextRef = useRef(null);
@@ -616,7 +627,31 @@ const App = () => {
                         if (updated[i].sender === 'user' && !updated[i].isFinal) { lastUserIndex = i; break; }
                     }
                     if (lastUserIndex >= 0) {
-                        updated[lastUserIndex] = { ...updated[lastUserIndex], text: inputAccumRef.current || updated[lastUserIndex].text, isFinal: true };
+                        const userText = inputAccumRef.current || updated[lastUserIndex].text;
+                        updated[lastUserIndex] = { ...updated[lastUserIndex], text: userText, isFinal: true };
+                        
+                        // Check for location queries in user message
+                        const locationResult = locationMatcher.extractLocationIntent(userText);
+                        if (locationResult.location && locationResult.intent === 'navigate') {
+                            const location = locationResult.location;
+                            const responseText = `The ${location.name} is on the ${location.floor_name}. ${location.description} I'll show you the way on the map.`;
+                            
+                            // Add Clara's response with map
+                            const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                            updated.push({
+                                sender: 'clara',
+                                text: responseText,
+                                isFinal: true,
+                                timestamp,
+                                hasMap: true,
+                                locationData: location
+                            });
+                            
+                            // Show map
+                            setCurrentLocation(location);
+                            setCurrentFloor(location.floor);
+                            setShowMap(true);
+                        }
                     }
                     // Finalize last Clara message
                     let lastClaraIndex = -1;
@@ -947,6 +982,20 @@ You are CLARA, the official, friendly, and professional AI receptionist for Sai 
                             <StaffLoginIcon />
                             <span>Staff Login</span>
                         </div>
+                        <div 
+                            className="header-button map-button" 
+                            onClick={() => {
+                                setShowMap(!showMap);
+                                if (!showMap && !currentLocation) {
+                                    // If no location selected, show ground floor
+                                    setCurrentFloor(0);
+                                }
+                            }}
+                            style={{ cursor: 'pointer' }}
+                        >
+                            <MapIcon />
+                            <span>{showMap ? 'Hide Map' : 'Show Map'}</span>
+                        </div>
                         <div className="header-button video-call">
                             <VideoCallHeaderIcon />
                             <span>Video Call</span>
@@ -1024,10 +1073,34 @@ You are CLARA, the official, friendly, and professional AI receptionist for Sai 
                             </div>
                             <div className="message-content">
                                 <p>{msg.text}</p>
+                                {msg.hasMap && msg.locationData && (
+                                    <button 
+                                        className="btn-show-map"
+                                        onClick={() => {
+                                            setCurrentLocation(msg.locationData);
+                                            setCurrentFloor(msg.locationData.floor);
+                                            setShowMap(true);
+                                        }}
+                                    >
+                                        📍 Show on Map
+                                    </button>
+                                )}
                             </div>
                              <div className="timestamp">{msg.timestamp}</div>
                         </div>
                     ))}
+                    
+                    {showMap && (
+                        <div className="map-panel">
+                            <MapNavigator
+                                locationData={currentLocation}
+                                destinationPoint={currentLocation?.coordinates || null}
+                                currentFloor={currentFloor}
+                                onFloorChange={setCurrentFloor}
+                                onClose={() => setShowMap(false)}
+                            />
+                        </div>
+                    )}
                 </div>
 
                 <div className="footer">
