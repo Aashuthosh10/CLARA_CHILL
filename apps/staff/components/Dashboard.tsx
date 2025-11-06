@@ -1,4 +1,4 @@
-import React, { useState, createContext, useEffect, useRef } from 'react';
+import React, { useState, createContext, useEffect } from 'react';
 import { StaffProfile, NavItem, TimetableEntry, Meeting, Group, ChatMessage } from '../types';
 import { HOD_EMAIL } from '../constants';
 import Sidebar from './Sidebar';
@@ -14,7 +14,6 @@ import NotificationContainer from './NotificationContainer';
 import NotificationSync from './NotificationSync';
 import { apiService } from '../services/api';
 import IncomingCallModal from './IncomingCallModal';
-import VideoCallView from './VideoCallView';
 import { StaffRTC, type CallIncomingEvent } from '../services/StaffRTC';
 
 interface DashboardProps {
@@ -61,160 +60,96 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, initialView = 'Da
 
   const isHod = user.email === HOD_EMAIL;
 
-  // Initialize RTC connection when user is available
   useEffect(() => {
-    if (!user) return;
-
-    const savedTimetable = localStorage.getItem(`timetable_${user.id}`);
-    setTimetable(savedTimetable ? JSON.parse(savedTimetable) : []);
+    if (user) {
+      const savedTimetable = localStorage.getItem(`timetable_${user.id}`);
+      setTimetable(savedTimetable ? JSON.parse(savedTimetable) : []);
+    }
     const savedMeetings = localStorage.getItem('meetings');
     setMeetings(savedMeetings ? JSON.parse(savedMeetings) : []);
     const savedGroups = localStorage.getItem('groups');
     setGroups(savedGroups ? JSON.parse(savedGroups) : []);
 
-    // ALWAYS enable unified RTC for WebRTC calls (required for presentation)
-    // Force enable even if env var is not set
-    const enableUnified = import.meta.env.VITE_ENABLE_UNIFIED_MODE === 'true' || true;
-    if (!enableUnified) {
-      console.log('[Dashboard] Unified mode is disabled');
-      return;
-    }
-    console.log('[Dashboard] Unified mode ENABLED (forced for presentation)');
-
-    // Extract staffId from user email (e.g., 'nagashreen' from 'nagashreen@gmail.com')
-    // This must match what the client sends as targetStaffId
-    const staffId = user.email?.includes('@') 
-      ? user.email.split('@')[0] 
-      : (user.id?.includes('@') ? user.id.split('@')[0] : (user.id || ''));
-    
-    console.log('[Dashboard] Initializing StaffRTC for user:', user.email || user.id);
-    console.log('[Dashboard] Extracted staffId:', staffId);
-
-    const initializeRTC = async () => {
-      try {
-        // Always refresh token to ensure it's valid
-        const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
-        console.log('[Dashboard] Refreshing token for staff:', staffId);
-        console.log('[Dashboard] Using API base:', apiBase);
-        
-        let token = localStorage.getItem('clara-jwt-token');
-        
-        try {
-          // Try unified login format first (works for demo)
-          let response = await fetch(`${apiBase}/api/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              username: user.email || user.id,
-              role: 'staff',
-              staffId: staffId,
-              dept: user.department || 'general',
-            }),
-          });
-          
-          if (!response.ok) {
-            // Try email/password format as fallback
-            console.log('[Dashboard] Unified login failed, trying email/password format...');
-            response = await fetch(`${apiBase}/api/auth/login`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                email: user.email || user.id,
-                password: 'Password123!', // Default password for demo
-              }),
-            });
-          }
-          
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error('[Dashboard] Login failed:', response.status, errorText);
-            // If we have an old token, try using it anyway
-            if (token) {
-              console.log('[Dashboard] Using existing token (may be expired)');
-            } else {
-              throw new Error(`Login failed: ${response.statusText}`);
-            }
-          } else {
-            const data = await response.json();
+    // Initialize unified RTC if enabled
+    const enableUnified = import.meta.env.VITE_ENABLE_UNIFIED_MODE === 'true';
+    if (enableUnified && user) {
+      let token = localStorage.getItem('clara-jwt-token');
+      if (!token) {
+        // Auto-login for demo
+        const apiBase = import.meta.env.VITE_API_BASE || 
+          (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8080');
+        fetch(`${apiBase}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: user.email,
+            role: 'staff',
+            staffId: user.id.includes('@') ? user.id.split('@')[0] : user.id, // Use email prefix
+            dept: user.department || 'general',
+          }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
             token = data.token;
-            
-            if (!token) {
-              console.error('[Dashboard] No token received from login');
-              // Check if we had an old token before login attempt
-              const oldToken = localStorage.getItem('clara-jwt-token');
-              if (oldToken) {
-                token = oldToken;
-                console.log('[Dashboard] Using existing token (may be expired)');
-              } else {
-                return;
-              }
-            } else {
+            if (token) {
               localStorage.setItem('clara-jwt-token', token);
-              console.log('[Dashboard] ✅ Token refreshed and saved to localStorage');
+              // Server uses email prefix as staffId (e.g., 'nagashreen' from 'nagashreen@gmail.com')
+              const staffId = user.id.includes('@') ? user.id.split('@')[0] : user.id;
+              const rtc = new StaffRTC({
+                token,
+                staffId: staffId,
+              });
+              rtc.attachHandlers({
+                onIncoming: (call) => {
+                  setIncomingCall(call);
+                  // Add floating glassy notification showing caller name
+                  const callerName = call.clientInfo?.name || call.clientInfo?.clientId || 'Unknown caller';
+                  addNotification({
+                    type: 'call',
+                    title: 'Incoming Call',
+                    message: `Incoming video call from ${callerName}`
+                  });
+                },
+                onUpdate: (update) => {
+                  console.log('Call update:', update);
+                },
+              });
+              setStaffRTC(rtc);
             }
-          }
-        } catch (error) {
-          console.error('[Dashboard] Error during auto-login:', error);
-          // If we have an old token, try using it anyway
-          if (token) {
-            console.log('[Dashboard] Using existing token (may be expired)');
-          } else {
-            console.error('[Dashboard] No token available, RTC will not work');
-            return;
-          }
-        }
-
-        // Create StaffRTC instance
+          })
+          .catch(console.error);
+      } else {
+        // Server uses email prefix as staffId (e.g., 'nagashreen' from 'nagashreen@gmail.com')
+        const staffId = user.id.includes('@') ? user.id.split('@')[0] : user.id;
         const rtc = new StaffRTC({
           token,
           staffId: staffId,
         });
-        
-        console.log('[Dashboard] StaffRTC created with staffId:', staffId);
-        
-        // Attach handlers BEFORE setting state to ensure they're ready
         rtc.attachHandlers({
           onIncoming: (call) => {
-            console.log('[Dashboard] ===== INCOMING CALL RECEIVED =====');
-            console.log('[Dashboard] Call details:', JSON.stringify(call, null, 2));
-            console.log('[Dashboard] Call ID:', call.callId);
-            console.log('[Dashboard] Client Info:', call.clientInfo);
             setIncomingCall(call);
             // Add floating glassy notification showing caller name
             const callerName = call.clientInfo?.name || call.clientInfo?.clientId || 'Unknown caller';
-            console.log('[Dashboard] Showing notification for caller:', callerName);
             addNotification({
               type: 'call',
               title: 'Incoming Call',
               message: `Incoming video call from ${callerName}`
             });
-            console.log('[Dashboard] Notification added and incomingCall state set');
           },
           onUpdate: (update) => {
-            console.log('[Dashboard] Call update received:', update);
+            console.log('Call update:', update);
           },
         });
-        
         setStaffRTC(rtc);
-        staffRTCRef.current = rtc;
-        console.log('[Dashboard] StaffRTC initialized and handlers attached for staffId:', staffId);
-      } catch (error) {
-        console.error('[Dashboard] Error initializing RTC:', error);
       }
-    };
+    }
 
-    initializeRTC();
-
-    // Cleanup on unmount
     return () => {
-      if (staffRTCRef.current) {
-        console.log('[Dashboard] Disconnecting StaffRTC');
-        staffRTCRef.current.disconnect();
-        staffRTCRef.current = null;
-        setStaffRTC(null);
+      if (staffRTC) {
+        staffRTC.disconnect();
       }
     };
-  }, [user, addNotification]); // Depend on user and addNotification
+  }, [user, staffRTC]);
   
   // When active view changes away from Team Directory, clear the active chat
   useEffect(() => {
@@ -309,132 +244,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, initialView = 'Da
     }
   };
 
-  const [activeCall, setActiveCall] = useState<{
-    callId: string;
-    pc: RTCPeerConnection;
-    stream: MediaStream;
-    remoteStream: MediaStream | null;
-  } | null>(null);
-  
-  // Store staffRTC in a ref to avoid dependency issues
-  const staffRTCRef = useRef<StaffRTC | null>(null);
-
-  // Listen for remote stream updates from peer connection
-  useEffect(() => {
-    if (!activeCall || !activeCall.pc) return;
-
-    const pc = activeCall.pc;
-    
-    // Check for existing remote stream
-    const checkRemoteStream = () => {
-      const receivers = pc.getReceivers();
-      if (receivers.length > 0) {
-        const tracks = receivers.map(r => r.track).filter(Boolean) as MediaStreamTrack[];
-        if (tracks.length > 0 && !activeCall.remoteStream) {
-          const newRemoteStream = new MediaStream(tracks);
-          setActiveCall(prev => prev ? { ...prev, remoteStream: newRemoteStream } : null);
-        }
-      }
-    };
-
-    // Check immediately
-    checkRemoteStream();
-
-    // Also listen for new tracks
-    const handleTrack = (e: RTCTrackEvent) => {
-      if (e.streams && e.streams.length > 0) {
-        setActiveCall(prev => prev ? { ...prev, remoteStream: e.streams[0] } : null);
-      }
-    };
-
-    pc.addEventListener('track', handleTrack);
-    
-    return () => {
-      pc.removeEventListener('track', handleTrack);
-    };
-  }, [activeCall]);
-
   const handleAcceptCall = async () => {
-    const currentRTC = staffRTC || staffRTCRef.current;
-    if (!incomingCall || !currentRTC) return;
-    
-    let stream: MediaStream | null = null;
-    
-    try {
-      // First, request camera and microphone permissions
-      console.log('[Dashboard] Requesting camera and microphone permissions...');
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      console.log('[Dashboard] Permissions granted, proceeding with call acceptance...');
-    } catch (error: any) {
-      console.error('[Dashboard] Error requesting permissions:', error);
-      alert('Could not access camera or microphone. Please check permissions and try again.');
-      // Decline the call if permissions are denied
-      await currentRTC.decline(incomingCall.callId, 'Camera/microphone access denied');
+    if (!incomingCall || !staffRTC) return;
+    const result = await staffRTC.accept(incomingCall.callId);
+    if (result) {
       setIncomingCall(null);
-      return;
-    }
-    
-    // Now accept the call (pass the stream to avoid requesting again)
-    try {
-      const result = await currentRTC.accept(incomingCall.callId, stream);
-      if (result) {
-        setIncomingCall(null);
-        // Set active call with peer connection and streams
-        setActiveCall({
-          callId: incomingCall.callId,
-          pc: result.pc,
-          stream: result.stream,
-          remoteStream: result.remoteStream,
-        });
-        // Handle accepted call - show video UI
-        addNotification({
-          type: 'meeting',
-          title: 'Call Accepted',
-          message: `Video call with ${incomingCall.clientInfo.name || incomingCall.clientInfo.clientId} connected`,
-        });
-      } else {
-        // If accept returns null, clean up the stream
-        if (stream) {
-          stream.getTracks().forEach(track => track.stop());
-        }
-        alert('Failed to accept call. Please try again.');
-      }
-    } catch (error: any) {
-      console.error('[Dashboard] Error accepting call:', error);
-      // Clean up stream if call acceptance failed
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-      alert(`Failed to accept call: ${error.message || 'Unknown error'}. Please try again.`);
-      setIncomingCall(null);
-    }
-  };
-
-  const handleEndCall = () => {
-    if (activeCall) {
-      // Cleanup
-      activeCall.stream.getTracks().forEach(track => track.stop());
-      if (activeCall.remoteStream) {
-        activeCall.remoteStream.getTracks().forEach(track => track.stop());
-      }
-      activeCall.pc.close();
-      const currentRTC = staffRTC || staffRTCRef.current;
-      if (currentRTC) {
-        currentRTC.endCall(activeCall.callId);
-      }
-      setActiveCall(null);
+      // Handle accepted call - could show video UI
       addNotification({
-        type: 'system',
-        title: 'Call Ended',
-        message: 'Video call has been ended',
+        type: 'meeting',
+        title: 'Call Accepted',
+        message: `Video call with ${incomingCall.clientInfo.name || incomingCall.clientInfo.clientId} connected`,
       });
     }
   };
 
   const handleDeclineCall = async () => {
-    const currentRTC = staffRTC || staffRTCRef.current;
-    if (!incomingCall || !currentRTC) return;
-    await currentRTC.decline(incomingCall.callId, 'Declined by staff');
+    if (!incomingCall || !staffRTC) return;
+    await staffRTC.decline(incomingCall.callId, 'Declined by staff');
     setIncomingCall(null);
   };
 
@@ -459,15 +285,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, initialView = 'Da
           onAccept={handleAcceptCall}
           onDecline={handleDeclineCall}
         />
-        {/* Video call view - shows when call is active */}
-        {activeCall && (
-          <VideoCallView
-            clientName={incomingCall?.clientInfo.name || incomingCall?.clientInfo.clientId || 'Client'}
-            callId={activeCall.callId}
-            onEndCall={handleEndCall}
-            activeCall={activeCall}
-          />
-        )}
       </div>
     </UserContext.Provider>
   );
