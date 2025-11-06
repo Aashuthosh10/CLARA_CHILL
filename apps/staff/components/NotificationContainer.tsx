@@ -59,7 +59,7 @@ const NotificationContainer: React.FC = () => {
     }
 
     return (
-        <div className="fixed top-5 right-5 z-[9999] w-full max-w-sm space-y-3 pointer-events-none px-4">
+        <div className="fixed top-4 right-4 lg:top-6 lg:right-6 z-[9999] w-full max-w-sm space-y-3 pointer-events-none px-2 lg:px-4">
             <AnimatePresence mode="popLayout">
                 {notifications.map((n) => (
                     <div key={n.id} className="pointer-events-auto">

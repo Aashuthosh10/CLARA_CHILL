@@ -14,6 +14,7 @@ import NotificationContainer from './NotificationContainer';
 import NotificationSync from './NotificationSync';
 import { apiService } from '../services/api';
 import IncomingCallModal from './IncomingCallModal';
+import VideoCallView from './VideoCallView';
 import { StaffRTC, type CallIncomingEvent } from '../services/StaffRTC';
 
 interface DashboardProps {
@@ -27,22 +28,22 @@ export const UserContext = createContext<{ user: StaffProfile | null }>({ user: 
 const Appointments: React.FC = () => <div className="text-white p-6 rounded-2xl bg-slate-900/50 backdrop-blur-lg border border-white/10">Appointments Content</div>;
 
 const Header: React.FC<{ activeView: NavItem, onLogout: () => void, user?: StaffProfile }> = ({ activeView, onLogout, user }) => (
-    <header className="flex justify-between items-center mb-6 bg-slate-900/30 backdrop-blur-lg border border-white/10 rounded-2xl p-6">
-        <div>
-            <h1 className="text-3xl font-bold text-white">{activeView}</h1>
-            <p className="text-slate-400">Welcome back{user ? `, ${user.name.split(' ').pop()}` : ''}! Here's what's happening today.</p>
+    <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900/30 backdrop-blur-lg border border-white/10 rounded-2xl p-4 lg:p-6">
+        <div className="flex-1 min-w-0">
+            <h1 className="text-2xl lg:text-3xl font-bold text-white truncate">{activeView}</h1>
+            <p className="text-slate-400 text-sm lg:text-base mt-1">Welcome back{user ? `, ${user.name.split(' ').pop()}` : ''}! Here's what's happening today.</p>
         </div>
-        <div className="flex items-center space-x-4">
-            <span className="flex items-center space-x-2 bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm">
-                <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+        <div className="flex items-center space-x-3 w-full sm:w-auto justify-between sm:justify-end">
+            <span className="flex items-center space-x-2 bg-green-500/20 text-green-400 px-3 py-1.5 rounded-full text-xs lg:text-sm flex-shrink-0">
+                <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
                 <span>Connected</span>
             </span>
             <button
                 onClick={onLogout}
-                className="bg-red-500/80 hover:bg-red-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
+                className="bg-red-500/80 hover:bg-red-600 text-white px-3 py-2 lg:px-4 rounded-lg flex items-center space-x-2 transition-colors text-sm lg:text-base flex-shrink-0"
             >
                 <i className="fa-solid fa-right-from-bracket"></i>
-                <span>Logout</span>
+                <span className="hidden sm:inline">Logout</span>
             </button>
         </div>
     </header>
@@ -52,6 +53,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, initialView = 'Da
   const [activeView, setActiveView] = useState<NavItem>(initialView);
   const [incomingCall, setIncomingCall] = useState<CallIncomingEvent | null>(null);
   const [staffRTC, setStaffRTC] = useState<StaffRTC | null>(null);
+  const [activeVideoCall, setActiveVideoCall] = useState<{
+    callId: string;
+    clientName: string;
+    peerConnection: RTCPeerConnection;
+    localStream: MediaStream;
+    remoteStream: MediaStream | null;
+  } | null>(null);
   const [timetable, setTimetable] = useState<TimetableEntry[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -246,14 +254,44 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, initialView = 'Da
 
   const handleAcceptCall = async () => {
     if (!incomingCall || !staffRTC) return;
-    const result = await staffRTC.accept(incomingCall.callId);
-    if (result) {
-      setIncomingCall(null);
-      // Handle accepted call - could show video UI
+    
+    try {
+      const result = await staffRTC.accept(incomingCall.callId);
+      if (result && result.pc && result.localStream) {
+        const clientName = incomingCall.clientInfo.name || incomingCall.clientInfo.clientId;
+        setIncomingCall(null);
+        
+        // Set up initial video call state
+        setActiveVideoCall({
+          callId: incomingCall.callId,
+          clientName,
+          peerConnection: result.pc,
+          localStream: result.localStream,
+          remoteStream: null,
+        });
+        
+        // Set up remote stream listener
+        result.onRemoteStream((remoteStream: MediaStream | null) => {
+          setActiveVideoCall((prev) => {
+            if (prev) {
+              return { ...prev, remoteStream };
+            }
+            return null;
+          });
+        });
+        
+        addNotification({
+          type: 'meeting',
+          title: 'Call Accepted',
+          message: `Video call with ${clientName} connected`,
+        });
+      }
+    } catch (error) {
+      console.error('Error accepting call:', error);
       addNotification({
-        type: 'meeting',
-        title: 'Call Accepted',
-        message: `Video call with ${incomingCall.clientInfo.name || incomingCall.clientInfo.clientId} connected`,
+        type: 'system',
+        title: 'Call Failed',
+        message: 'Failed to accept the video call. Please try again.',
       });
     }
   };
@@ -264,14 +302,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, initialView = 'Da
     setIncomingCall(null);
   };
 
+  const handleEndVideoCall = () => {
+    if (activeVideoCall && staffRTC) {
+      staffRTC.endCall(activeVideoCall.callId);
+      // Clean up streams
+      activeVideoCall.localStream.getTracks().forEach((track) => track.stop());
+      if (activeVideoCall.remoteStream) {
+        activeVideoCall.remoteStream.getTracks().forEach((track) => track.stop());
+      }
+      activeVideoCall.peerConnection.close();
+    }
+    setActiveVideoCall(null);
+  };
+
   return (
     <UserContext.Provider value={{ user }}>
-      <div className="flex min-h-screen bg-gradient-to-br from-[#0f172a] to-[#1e1b4b] p-4 lg:p-6 font-sans">
+      {/* Video call overlay - shows on top of everything */}
+      {activeVideoCall && (
+        <VideoCallView
+          clientName={activeVideoCall.clientName}
+          callId={activeVideoCall.callId}
+          localStream={activeVideoCall.localStream}
+          remoteStream={activeVideoCall.remoteStream}
+          peerConnection={activeVideoCall.peerConnection}
+          onEndCall={handleEndVideoCall}
+        />
+      )}
+      
+      <div className="flex min-h-screen bg-gradient-to-br from-[#0f172a] to-[#1e1b4b] font-sans">
         <Sidebar user={user} activeItem={activeView} setActiveItem={setActiveView} />
-        <main className="flex-1 ml-4 lg:ml-[280px] transition-all duration-300">
+        <main className="flex-1 w-full lg:ml-[280px] transition-all duration-300 p-4 lg:p-6">
           <Header activeView={activeView} onLogout={onLogout} user={user} />
-          <div className="h-[calc(100vh-120px)] overflow-y-auto pr-2">
+          <div className="mt-4 overflow-y-auto" style={{ height: 'calc(100vh - 180px)' }}>
+            <div className="pr-2">
               {renderActiveComponent()}
+            </div>
           </div>
         </main>
         {/* Sync notifications from backend */}

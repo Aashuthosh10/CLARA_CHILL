@@ -55,7 +55,6 @@ export class StaffRTC {
   private ensureSocket() {
     if (!this.socket) {
       const socketUrl = this.apiBase.replace(/\/api$/, '');
-      // Connect to /rtc namespace (same as client CallService)
       this.socket = io(`${socketUrl}/rtc`, {
         path: SOCKET_PATH,
         auth: { token: this.token },
@@ -63,12 +62,7 @@ export class StaffRTC {
 
       // Join staff room
       this.socket.on('connect', () => {
-        console.log('Staff socket connected to /rtc namespace');
-        console.log('Staff ID:', this.staffId);
-      });
-
-      this.socket.on('connect_error', (error) => {
-        console.error('Staff socket connection error:', error);
+        console.log('Staff socket connected');
       });
     }
     return this.socket;
@@ -94,7 +88,7 @@ export class StaffRTC {
     });
   }
 
-  async accept(callId: string): Promise<{ pc: RTCPeerConnection; stream: MediaStream } | null> {
+  async accept(callId: string): Promise<{ pc: RTCPeerConnection; localStream: MediaStream; onRemoteStream: (callback: (stream: MediaStream | null) => void) => void } | null> {
     if (!ENABLE_UNIFIED) return null;
 
     try {
@@ -119,8 +113,16 @@ export class StaffRTC {
       });
 
       // Get user media
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+
+      // Handle remote stream tracking
+      let remoteStreamCallback: ((stream: MediaStream | null) => void) | null = null;
+      pc.ontrack = (event) => {
+        if (event.streams && event.streams[0] && remoteStreamCallback) {
+          remoteStreamCallback(event.streams[0]);
+        }
+      };
 
       // Handle ICE candidates
       pc.onicecandidate = (e) => {
@@ -155,9 +157,16 @@ export class StaffRTC {
         }
       });
 
-      this.activeCalls.set(callId, { pc, stream });
+      this.activeCalls.set(callId, { pc, stream: localStream });
 
-      return { pc, stream };
+      // Return with remote stream callback setup
+      return {
+        pc,
+        localStream,
+        onRemoteStream: (callback: (stream: MediaStream | null) => void) => {
+          remoteStreamCallback = callback;
+        },
+      };
     } catch (error) {
       console.error('StaffRTC.accept error:', error);
       return null;
