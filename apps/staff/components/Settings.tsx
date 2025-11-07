@@ -64,7 +64,7 @@ const Settings: React.FC = () => {
   };
 
   return (
-    <div className="text-white p-6 rounded-2xl bg-slate-900/50 backdrop-blur-lg border border-white/10 max-w-2xl mx-auto">
+    <div className="text-white p-4 lg:p-6 rounded-2xl bg-slate-900/50 backdrop-blur-lg border border-white/10 max-w-2xl mx-auto w-full">
       <h2 className="text-2xl font-bold mb-6">Change Password</h2>
       
       <form onSubmit={handleSubmit} className="space-y-6">

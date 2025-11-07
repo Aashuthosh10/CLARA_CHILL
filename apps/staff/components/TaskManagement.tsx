@@ -29,10 +29,16 @@ const TaskCard: React.FC<{ task: Task, onEdit: (task: Task) => void }> = ({ task
 );
 
 const TaskColumn: React.FC<{ title: string; tasks: Task[]; onEdit: (task: Task) => void }> = ({ title, tasks, onEdit }) => (
-    <div className="flex-1 bg-slate-900/50 backdrop-blur-sm rounded-xl p-4">
-        <h2 className="text-lg font-semibold text-white mb-4 px-2">{title}</h2>
-        <div className="space-y-4">
-            {tasks.map(task => <TaskCard key={task.id} task={task} onEdit={onEdit}/>)}
+    <div className="bg-slate-900/50 backdrop-blur-sm rounded-xl p-4 h-full flex flex-col min-h-0">
+        <h2 className="text-lg font-semibold text-white mb-4 px-2 flex-shrink-0">{title} <span className="text-sm text-slate-400 font-normal">({tasks.length})</span></h2>
+        <div className="space-y-4 flex-1 overflow-y-auto min-h-0">
+            {tasks.length === 0 ? (
+                <div className="text-center text-slate-400 py-8">
+                    <p>No tasks in this column</p>
+                </div>
+            ) : (
+                tasks.map(task => <TaskCard key={task.id} task={task} onEdit={onEdit}/>)
+            )}
         </div>
     </div>
 );
@@ -167,16 +173,23 @@ const TaskManagement: React.FC = () => {
     };
 
     return (
-        <div className="text-white h-full flex flex-col">
-            <div className="flex justify-end mb-4">
-                <button onClick={() => handleOpenModal()} className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">
-                   <i className="fa-solid fa-plus mr-2"></i> Add Task
+        <div className="text-white h-full flex flex-col min-h-0">
+            <div className="flex justify-end mb-4 flex-shrink-0">
+                <button onClick={() => handleOpenModal()} className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-all hover:scale-105 flex items-center space-x-2">
+                   <i className="fa-solid fa-plus"></i>
+                   <span className="hidden sm:inline">Add Task</span>
                 </button>
             </div>
-            <div className="flex-grow flex space-x-6">
-                <TaskColumn title="To Do" tasks={tasks.filter(t => t.status === 'To Do')} onEdit={handleOpenModal} />
-                <TaskColumn title="In Progress" tasks={tasks.filter(t => t.status === 'In Progress')} onEdit={handleOpenModal} />
-                <TaskColumn title="Done" tasks={tasks.filter(t => t.status === 'Done')} onEdit={handleOpenModal} />
+            <div className="flex-grow flex flex-col lg:flex-row space-y-4 lg:space-y-0 lg:space-x-4 lg:overflow-hidden min-h-0">
+                <div className="flex-1 min-w-0 lg:overflow-y-auto lg:pr-2">
+                    <TaskColumn title="To Do" tasks={tasks.filter(t => t.status === 'To Do')} onEdit={handleOpenModal} />
+                </div>
+                <div className="flex-1 min-w-0 lg:overflow-y-auto lg:pr-2">
+                    <TaskColumn title="In Progress" tasks={tasks.filter(t => t.status === 'In Progress')} onEdit={handleOpenModal} />
+                </div>
+                <div className="flex-1 min-w-0 lg:overflow-y-auto lg:pr-2">
+                    <TaskColumn title="Done" tasks={tasks.filter(t => t.status === 'Done')} onEdit={handleOpenModal} />
+                </div>
             </div>
             <TaskModal
                 isOpen={isModalOpen}
