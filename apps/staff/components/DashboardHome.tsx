@@ -176,8 +176,10 @@ const TimetableCard: React.FC<{
     if (!semesterTimetable || !semesterTimetable.schedule) {
         return (
             <Card title="Today's Schedule" icon="fa-solid fa-calendar-day" className="md:col-span-2">
-                <div className="flex items-center justify-center h-full text-slate-400 min-h-[200px]">
-                    <p>No timetable set. Go to the Timetable page to add entries.</p>
+                <div className="flex flex-col items-center justify-center h-full text-slate-400 min-h-[200px] p-4">
+                    <p className="mb-2 text-center">No timetable set for {selectedSemester}.</p>
+                    <p className="text-sm text-center text-slate-500">Please set your timetable in the Timetable section.</p>
+                    <p className="text-xs text-center text-slate-600 mt-2">The timetable will appear here once it's configured.</p>
                 </div>
             </Card>
         );

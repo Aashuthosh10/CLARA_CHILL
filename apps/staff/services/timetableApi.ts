@@ -1,20 +1,42 @@
 // Timetable API service for fetching and updating timetables
 // Determine API base URL - prefer env vars, otherwise use unified server
 const getApiBaseUrl = () => {
+  // First, check environment variables
   if ((import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_BASE) {
     const base = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_BASE;
+    // Remove trailing slash and ensure /api is appended correctly
+    const cleanBase = base.replace(/\/+$/, '');
     // If base already includes /api, don't add it again
-    return base.endsWith('/api') ? base : `${base}/api`;
-  }
-  // In development, always use the unified server on port 8080
-  if (typeof window !== 'undefined') {
-    // If accessed through unified server, use current origin
-    if (window.location.port === '8080' || window.location.pathname.startsWith('/staff')) {
-      return `${window.location.origin}/api`;
+    if (cleanBase.endsWith('/api')) {
+      return cleanBase;
     }
-    // Otherwise, use the unified server port
-    return 'http://localhost:8080/api';
+    return `${cleanBase}/api`;
   }
+  
+  // In browser environment, try to detect the correct API base
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin;
+    const port = window.location.port;
+    const pathname = window.location.pathname;
+    
+    // If accessed through unified server (port 8080 or /staff path), use current origin
+    if (port === '8080' || pathname.startsWith('/staff')) {
+      return `${origin}/api`;
+    }
+    
+    // If staff app is on a different port (like 5174), try to use port 8080 for API
+    // This handles the case where staff and server run separately in dev
+    if (port === '5174' || port === '5173') {
+      // Try to construct the API URL - assume server is on same host, port 8080
+      const host = window.location.hostname;
+      return `http://${host}:8080/api`;
+    }
+    
+    // Default fallback: use current origin
+    return `${origin}/api`;
+  }
+  
+  // Server-side or fallback
   return 'http://localhost:8080/api';
 };
 

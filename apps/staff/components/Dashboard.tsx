@@ -112,9 +112,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, initialView = 'Da
             schedule: apiData.schedule,
           };
           setSemesterTimetable(convertedData);
+          // Also save to localStorage for future use
+          const saveKey = getLocalStorageKey(normalizedFacultyId, selectedSemester);
+          localStorage.setItem(saveKey, JSON.stringify(convertedData));
+          console.log('✅ Loaded timetable from API and saved to localStorage:', saveKey);
         } catch (apiError) {
-          // If API fails, keep null (will show empty state)
-          console.log('Could not load timetable from API for dashboard:', apiError);
+          // If API fails, log the error but don't throw
+          console.warn('⚠️ Could not load timetable from API for dashboard:', apiError);
+          console.warn('   This is normal if no timetable has been set yet.');
+          // Keep null to show empty state message
         }
       } catch (error) {
         console.error('Error loading semester timetable for dashboard:', error);
