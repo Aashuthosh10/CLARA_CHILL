@@ -222,20 +222,24 @@ const InCallControls: React.FC<InCallControlsProps> = ({
       </div>
 
       {/* End Call */}
-      <button
-        className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-colors"
-        onClick={onEndCall}
-        aria-label="End call"
-      >
-        <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M16 8l2 2m0 0l2 2m-2-2l-2 2m2-2l-2-2M3 12a9 9 0 1118 0 9 9 0 01-18 0z"
-          />
-        </svg>
-      </button>
+      {variant === 'client' && (
+        <button
+          onClick={() => {
+            onEndCall();
+          }}
+          className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center shadow-lg"
+          title="End Call"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            className="w-6 h-6"
+          >
+            <path d="M21 10.5c0-.3-.17-.57-.43-.7-2.37-1.16-4.97-1.78-7.57-1.8-2.6.02-5.2.64-7.57 1.8a.75.75 0 0 0-.43.7v3.75c0 .41.34.75.75.75h3c.41 0 .75-.34.75-.75V12c1.4-.38 2.86-.58 4.32-.58 1.46 0 2.92.2 4.32.58v2.25c0 .41.34.75.75.75h3c.41 0 .75-.34.75-.75V10.5Z" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 };

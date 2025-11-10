@@ -27,6 +27,7 @@ import { apiService } from '../services/api';
 import { StaffRTC, type CallIncomingEvent } from '../services/StaffRTC';
 import FloatingCallNotification from './FloatingCallNotification';
 import { useStaffCallStore } from '../src/stores/callStore';
+import CallRoom from './CallRoom';
 
 interface DashboardProps {
   user: StaffProfile;
@@ -96,6 +97,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, initialView = 'Da
   const [groups, setGroups] = useState<Group[]>([]);
   const [activeChatGroup, setActiveChatGroup] = useState<string | null>(null);
   const { addNotification } = useNotification();
+  const isCallActive = useStaffCallStore((state) => state.state === 'connecting' || state.state === 'in_call');
 
   const isHod = user.email === HOD_EMAIL;
   const staffId = user.email?.split('@')[0] || user.id;
@@ -201,6 +203,31 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, initialView = 'Da
     },
     [staffRTC, staffId, user.name]
   );
+
+  const handleEndActiveCall = useCallback(async () => {
+    const store = useStaffCallStore.getState();
+    const activeCallId = store.callData.callId;
+
+    if (activeCallId && staffRTC) {
+      try {
+        await staffRTC.endCall(activeCallId);
+      } catch (error) {
+        console.error('[Dashboard] Failed to end call via StaffRTC:', error);
+      }
+    }
+
+    try {
+      store.endCall();
+    } catch (error) {
+      console.warn('[Dashboard] Failed to update call store on end:', error);
+    }
+
+    addNotification({
+      type: 'meeting',
+      title: 'Call Ended',
+      message: 'Video call closed successfully.',
+    });
+  }, [staffRTC, addNotification]);
 
   const registerRtcHandlers = useCallback(
     (rtc: StaffRTC) => {
@@ -659,6 +686,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, initialView = 'Da
           startedAt: Date.now(),
           reason: incomingCall.reason,
         });
+      if (result.pc) {
+        result.pc.addEventListener('track', (event: RTCTrackEvent) => {
+          const remoteStream = event.streams?.[0];
+          if (!remoteStream) return;
+          useStaffCallStore.getState().setInCall({ remoteStream });
+        });
+      }
       addPendingAppointment({
         id: incomingCall.callId,
         callId: incomingCall.callId,
@@ -717,6 +751,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, initialView = 'Da
           onDecline={handleDeclineCall}
           timeoutMs={15000}
         />
+        {isCallActive && <CallRoom onEndCall={handleEndActiveCall} />}
       </div>
     </UserContext.Provider>
   );

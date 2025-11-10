@@ -1,5 +1,6 @@
-import { Pool, QueryResult } from 'pg';
+import { Collection } from 'mongodb';
 import dotenv from 'dotenv';
+import { getCollection } from './db/mongoClient.js';
 
 type SemesterClass = {
   time: string;
@@ -42,85 +43,75 @@ export type FacultyTimetable = {
 dotenv.config();
 
 export class TimetableRepository {
-  private pool: Pool | null = null;
+  private collection: Collection<FacultyTimetable & { compositeKey: string; createdAt: string }> | null = null;
   private memoryStore: Map<string, FacultyTimetable> = new Map();
   private useMemory = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor() {
-    const dbUrl = process.env.DATABASE_URL;
-    if (dbUrl && dbUrl.startsWith('postgres')) {
-      try {
-        this.pool = new Pool({ connectionString: dbUrl });
-        this.initDb().catch(console.error);
-      } catch (e) {
-        console.warn('Failed to connect to Postgres for timetables, using in-memory store:', e);
-        this.useMemory = true;
-      }
-    } else {
+    this.initPromise = this.initialize().catch((error) => {
+      console.error('Failed to initialize MongoDB for timetables. Falling back to in-memory store.', error);
       this.useMemory = true;
-      console.log('Using in-memory store for timetables (no DATABASE_URL)');
-    }
+      this.collection = null;
+    });
   }
 
-  private async initDb() {
-    if (!this.pool) return;
-    
-    try {
-      await this.pool.query(`
-        CREATE TABLE IF NOT EXISTS faculty_timetables (
-          id VARCHAR(255) PRIMARY KEY,
-          faculty_id VARCHAR(255) NOT NULL,
-          semester VARCHAR(100) NOT NULL,
-          faculty VARCHAR(255) NOT NULL,
-          designation VARCHAR(255),
-          schedule JSONB NOT NULL,
-          workload JSONB,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          edit_history JSONB DEFAULT '[]'::jsonb,
-          UNIQUE(faculty_id, semester)
-        );
-      `);
-      console.log('Timetable database initialized');
-    } catch (e) {
-      console.error('Failed to initialize timetable database:', e);
-      this.useMemory = true;
-      this.pool = null;
+  private async initialize() {
+    const collection = await getCollection<FacultyTimetable & { compositeKey: string; createdAt: string }>('faculty_timetables');
+    await collection.createIndex({ compositeKey: 1 }, { unique: true });
+    await collection.createIndex({ facultyId: 1, updatedAt: -1 });
+    await collection.createIndex({ semester: 1, faculty: 1 });
+    this.collection = collection;
+    this.useMemory = false;
+  }
+
+  private async ensureInitialized() {
+    if (this.collection || this.useMemory) {
+      return;
+    }
+    if (this.initPromise) {
+      await this.initPromise;
     }
   }
 
   private getKey(facultyId: string, semester: string): string {
-    return `${facultyId}_${semester}`;
+    return `${this.normalizeFacultyId(facultyId)}_${semester}`;
+  }
+
+  private normalizeFacultyId(facultyId: string): string {
+    return facultyId.toLowerCase().replace(/[^a-z0-9]/g, '');
   }
 
   async get(facultyId: string, semester: string): Promise<FacultyTimetable | null> {
-    const key = this.getKey(facultyId, semester);
+    await this.ensureInitialized();
+
+    const normalizedFacultyId = this.normalizeFacultyId(facultyId);
+    const key = this.getKey(normalizedFacultyId, semester);
     
-    if (this.useMemory || !this.pool) {
+    if (this.useMemory || !this.collection) {
       const timetable = this.memoryStore.get(key);
       return timetable ? { ...timetable } : null;
     }
 
     try {
-      const result: QueryResult = await this.pool.query(
-        'SELECT * FROM faculty_timetables WHERE faculty_id = $1 AND semester = $2',
-        [facultyId, semester]
-      );
+      const doc = await this.collection.findOne({ compositeKey: key });
       
-      if (result.rows.length === 0) return null;
+      if (!doc) return null;
       
-      const row = result.rows[0];
       return {
-        facultyId: row.faculty_id,
-        faculty: row.faculty,
-        designation: row.designation,
-        semester: row.semester,
-        schedule: row.schedule,
-        workload: row.workload,
-        updatedAt: row.updated_at.toISOString(),
-        editHistory: row.edit_history || [],
+        facultyId: doc.facultyId,
+        faculty: doc.faculty,
+        designation: doc.designation,
+        semester: doc.semester,
+        schedule: doc.schedule,
+        workload: doc.workload,
+        updatedAt: doc.updatedAt,
+        editHistory: doc.editHistory || [],
       };
-    } catch (e) {
-      console.error('Failed to get timetable from DB:', e);
+    } catch (error) {
+      console.error('Failed to get timetable from MongoDB, falling back to memory store:', error);
+      this.collection = null;
+      this.useMemory = true;
       const timetable = this.memoryStore.get(key);
       return timetable ? { ...timetable } : null;
     }
@@ -131,11 +122,14 @@ export class TimetableRepository {
     editedBy: string,
     fieldChanged?: string
   ): Promise<FacultyTimetable> {
-    const key = this.getKey(timetable.facultyId, timetable.semester);
+    await this.ensureInitialized();
+
+    const normalizedFacultyId = this.normalizeFacultyId(timetable.facultyId);
+    const key = this.getKey(normalizedFacultyId, timetable.semester);
     const now = new Date().toISOString();
     
     // Add edit history entry
-    const editHistory = timetable.editHistory || [];
+    const editHistory = [...(timetable.editHistory || [])];
     if (fieldChanged) {
       editHistory.push({
         editedBy,
@@ -146,80 +140,125 @@ export class TimetableRepository {
 
     const updatedTimetable: FacultyTimetable = {
       ...timetable,
+      facultyId: normalizedFacultyId,
       updatedAt: now,
       editHistory: editHistory.slice(-50), // Keep last 50 edits
     };
 
-    if (this.useMemory || !this.pool) {
+    if (this.useMemory || !this.collection) {
       this.memoryStore.set(key, { ...updatedTimetable });
       return updatedTimetable;
     }
 
     try {
-      await this.pool.query(
-        `INSERT INTO faculty_timetables (id, faculty_id, semester, faculty, designation, schedule, workload, updated_at, edit_history)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         ON CONFLICT (faculty_id, semester)
-         DO UPDATE SET
-           faculty = EXCLUDED.faculty,
-           designation = EXCLUDED.designation,
-           schedule = EXCLUDED.schedule,
-           workload = EXCLUDED.workload,
-           updated_at = EXCLUDED.updated_at,
-           edit_history = EXCLUDED.edit_history`,
-        [
-          key,
-          timetable.facultyId,
-          timetable.semester,
-          timetable.faculty,
-          timetable.designation || null,
-          JSON.stringify(timetable.schedule),
-          timetable.workload ? JSON.stringify(timetable.workload) : null,
-          now,
-          JSON.stringify(editHistory),
-        ]
+      await this.collection.updateOne(
+        { compositeKey: key },
+        {
+          $set: {
+            compositeKey: key,
+            facultyId: normalizedFacultyId,
+            semester: timetable.semester,
+            faculty: timetable.faculty,
+            designation: timetable.designation,
+            schedule: timetable.schedule,
+            workload: timetable.workload,
+            updatedAt: now,
+            editHistory: editHistory.slice(-50),
+          },
+          $setOnInsert: {
+            createdAt: now,
+          },
+        },
+        { upsert: true }
       );
       return updatedTimetable;
-    } catch (e) {
-      console.error('Failed to save timetable to DB:', e);
+    } catch (error) {
+      console.error('Failed to save timetable to MongoDB, falling back to memory store:', error);
+      this.collection = null;
+      this.useMemory = true;
       this.memoryStore.set(key, { ...updatedTimetable });
       return updatedTimetable;
     }
   }
 
   async getAllForSemester(semester: string): Promise<FacultyTimetable[]> {
-    if (this.useMemory || !this.pool) {
+    await this.ensureInitialized();
+
+    if (this.useMemory || !this.collection) {
       return Array.from(this.memoryStore.values())
         .filter(t => t.semester === semester);
     }
 
     try {
-      const result: QueryResult = await this.pool.query(
-        'SELECT * FROM faculty_timetables WHERE semester = $1 ORDER BY faculty',
-        [semester]
-      );
+      const docs = await this.collection
+        .find({ semester })
+        .sort({ faculty: 1 })
+        .toArray();
       
-      return result.rows.map(row => ({
-        facultyId: row.faculty_id,
-        faculty: row.faculty,
-        designation: row.designation,
-        semester: row.semester,
-        schedule: row.schedule,
-        workload: row.workload,
-        updatedAt: row.updated_at.toISOString(),
-        editHistory: row.edit_history || [],
+      return docs.map(doc => ({
+        facultyId: doc.facultyId,
+        faculty: doc.faculty,
+        designation: doc.designation,
+        semester: doc.semester,
+        schedule: doc.schedule,
+        workload: doc.workload,
+        updatedAt: doc.updatedAt,
+        editHistory: doc.editHistory || [],
       }));
-    } catch (e) {
-      console.error('Failed to get timetables from DB:', e);
+    } catch (error) {
+      console.error('Failed to get timetables from MongoDB, falling back to memory store:', error);
+      this.collection = null;
+      this.useMemory = true;
       return Array.from(this.memoryStore.values())
         .filter(t => t.semester === semester);
     }
   }
 
   async close() {
-    if (this.pool) {
-      await this.pool.end();
+    // Mongo client managed globally; nothing to close here.
+  }
+
+  async getLatestForFaculty(facultyId: string): Promise<FacultyTimetable | null> {
+    await this.ensureInitialized();
+
+    const normalizedFacultyId = this.normalizeFacultyId(facultyId);
+
+    if (this.useMemory || !this.collection) {
+      const candidates = Array.from(this.memoryStore.values())
+        .filter((entry) => this.normalizeFacultyId(entry.facultyId) === normalizedFacultyId)
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      return candidates[0] ? { ...candidates[0] } : null;
+    }
+
+    try {
+      const doc = await this.collection
+        .find({ facultyId: normalizedFacultyId })
+        .sort({ updatedAt: -1 })
+        .limit(1)
+        .next();
+
+      if (!doc) {
+        return null;
+      }
+
+      return {
+        facultyId: doc.facultyId,
+        faculty: doc.faculty,
+        designation: doc.designation,
+        semester: doc.semester,
+        schedule: doc.schedule,
+        workload: doc.workload,
+        updatedAt: doc.updatedAt,
+        editHistory: doc.editHistory || [],
+      };
+    } catch (error) {
+      console.error('Failed to fetch latest timetable from MongoDB, falling back to memory:', error);
+      this.collection = null;
+      this.useMemory = true;
+      const candidates = Array.from(this.memoryStore.values())
+        .filter((entry) => this.normalizeFacultyId(entry.facultyId) === normalizedFacultyId)
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      return candidates[0] ? { ...candidates[0] } : null;
     }
   }
 }
-

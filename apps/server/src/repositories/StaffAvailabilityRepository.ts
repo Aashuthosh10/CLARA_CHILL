@@ -1,171 +1,158 @@
 /**
  * Staff Availability Repository
- * Manages staff availability status for call routing
+ * Persists data in MongoDB with in-memory fallback.
  */
-import { Pool, QueryResult } from 'pg';
+import { Collection } from 'mongodb';
 import { StaffAvailability } from '../models/Call.js';
-import dotenv from 'dotenv';
+import { getCollection } from '../db/mongoClient.js';
 
-dotenv.config();
+type StaffAvailabilityDocument = {
+  userId: string;
+  orgId: string;
+  status: 'available' | 'busy' | 'away' | 'offline';
+  updatedAt: number;
+  skills?: string[];
+};
 
 export class StaffAvailabilityRepository {
-  private pool: Pool | null = null;
+  private collection: Collection<StaffAvailabilityDocument> | null = null;
   private memoryStore: Map<string, StaffAvailability> = new Map();
   private useMemory = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor() {
-    const dbUrl = process.env.DATABASE_URL;
-    if (dbUrl && dbUrl.startsWith('postgres')) {
-      try {
-        this.pool = new Pool({ connectionString: dbUrl });
-        this.initDb().catch(console.error);
-      } catch (e) {
-        console.warn('Failed to connect to Postgres, using in-memory store:', e);
-        this.useMemory = true;
-      }
-    } else {
+    this.initPromise = this.initialize().catch((error) => {
+      console.error('Failed to initialize MongoDB for staff availability. Falling back to in-memory store.', error);
       this.useMemory = true;
-      console.log('Using in-memory store for availability (no DATABASE_URL)');
+      this.collection = null;
+    });
+  }
+
+  private async initialize() {
+    try {
+      const collection = await getCollection<StaffAvailabilityDocument>('staff_availability');
+      await collection.createIndex({ userId: 1, orgId: 1 }, { unique: true });
+      await collection.createIndex({ orgId: 1, status: 1, updatedAt: -1 });
+      this.collection = collection;
+      this.useMemory = false;
+    } catch (error) {
+      throw error;
     }
   }
 
-  private async initDb() {
-    if (!this.pool) return;
-    
-    try {
-      await this.pool.query(`
-        CREATE TABLE IF NOT EXISTS staff_availability (
-          user_id VARCHAR(255) NOT NULL,
-          org_id VARCHAR(255) NOT NULL,
-          status VARCHAR(50) NOT NULL,
-          updated_at BIGINT NOT NULL,
-          skills JSONB,
-          PRIMARY KEY (user_id, org_id)
-        );
-      `);
-
-      await this.pool.query(`
-        CREATE INDEX IF NOT EXISTS idx_staff_availability_status 
-        ON staff_availability(status) WHERE status = 'available';
-      `);
-
-      console.log('✅ Staff availability schema initialized');
-    } catch (e) {
-      console.error('Failed to initialize availability DB:', e);
-      this.useMemory = true;
-      this.pool = null;
+  private async ensureInitialized() {
+    if (this.collection || this.useMemory) {
+      return;
     }
+    if (this.initPromise) {
+      await this.initPromise;
+    }
+  }
+
+  private getMemoryKey(userId: string, orgId: string) {
+    return `${userId}:${orgId}`;
   }
 
   async setAvailability(availability: StaffAvailability): Promise<void> {
-    if (this.useMemory || !this.pool) {
-      const key = `${availability.userId}:${availability.orgId}`;
+    await this.ensureInitialized();
+
+    if (this.useMemory || !this.collection) {
+      const key = this.getMemoryKey(availability.userId, availability.orgId);
       this.memoryStore.set(key, { ...availability });
       return;
     }
 
     try {
-      await this.pool.query(
-        `INSERT INTO staff_availability (user_id, org_id, status, updated_at, skills)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (user_id, org_id) 
-         DO UPDATE SET status = $3, updated_at = $4, skills = $5`,
-        [
-          availability.userId,
-          availability.orgId,
-          availability.status,
-          availability.updatedAt,
-          availability.skills ? JSON.stringify(availability.skills) : null,
-        ]
+      await this.collection.updateOne(
+        { userId: availability.userId, orgId: availability.orgId },
+        {
+          $set: {
+            status: availability.status,
+            updatedAt: availability.updatedAt,
+            skills: availability.skills,
+          },
+        },
+        { upsert: true }
       );
-    } catch (e) {
-      console.error('Failed to set availability:', e);
-      const key = `${availability.userId}:${availability.orgId}`;
+    } catch (error) {
+      console.error('Failed to set availability in MongoDB, falling back to memory store:', error);
+      const key = this.getMemoryKey(availability.userId, availability.orgId);
       this.memoryStore.set(key, { ...availability });
+      this.useMemory = true;
+      this.collection = null;
     }
   }
 
   /**
    * Find available staff for call routing
-   * Returns staff sorted by lastSeenAt (most recent first)
+   * Returns staff sorted by most recently updated.
    */
   async findAvailableStaff(orgId: string, skills?: string[]): Promise<StaffAvailability[]> {
-    if (this.useMemory || !this.pool) {
+    await this.ensureInitialized();
+
+    if (this.useMemory || !this.collection) {
       return Array.from(this.memoryStore.values())
-        .filter(a => a.orgId === orgId && a.status === 'available')
+        .filter((availability) => availability.orgId === orgId && availability.status === 'available')
         .sort((a, b) => b.updatedAt - a.updatedAt);
     }
 
     try {
-      let query = `
-        SELECT * FROM staff_availability 
-        WHERE org_id = $1 AND status = 'available'
-        ORDER BY updated_at DESC
-      `;
-      const params: any[] = [orgId];
-
-      // TODO: Add skills filtering if needed
+      const query: Record<string, any> = { orgId, status: 'available' };
       if (skills && skills.length > 0) {
-        query = `
-          SELECT * FROM staff_availability 
-          WHERE org_id = $1 
-            AND status = 'available'
-            AND skills @> $2::jsonb
-          ORDER BY updated_at DESC
-        `;
-        params.push(JSON.stringify(skills));
+        query.skills = { $all: skills };
       }
 
-      const result: QueryResult = await this.pool.query(query, params);
-      
-      return result.rows.map(row => ({
-        userId: row.user_id,
-        orgId: row.org_id,
-        status: row.status as 'available' | 'busy' | 'away' | 'offline',
-        updatedAt: row.updated_at,
-        skills: row.skills,
+      const docs = await this.collection
+        .find(query)
+        .sort({ updatedAt: -1 })
+        .toArray();
+
+      return docs.map((doc) => ({
+        userId: doc.userId,
+        orgId: doc.orgId,
+        status: doc.status,
+        updatedAt: doc.updatedAt,
+        skills: doc.skills,
       }));
-    } catch (e) {
-      console.error('Failed to find available staff:', e);
+    } catch (error) {
+      console.error('Failed to query availability from MongoDB, falling back to memory store:', error);
+      this.useMemory = true;
+      this.collection = null;
       return Array.from(this.memoryStore.values())
-        .filter(a => a.orgId === orgId && a.status === 'available')
+        .filter((availability) => availability.orgId === orgId && availability.status === 'available')
         .sort((a, b) => b.updatedAt - a.updatedAt);
     }
   }
 
   async getAvailability(userId: string, orgId: string): Promise<StaffAvailability | null> {
-    if (this.useMemory || !this.pool) {
-      const key = `${userId}:${orgId}`;
+    await this.ensureInitialized();
+
+    if (this.useMemory || !this.collection) {
+      const key = this.getMemoryKey(userId, orgId);
       return this.memoryStore.get(key) || null;
     }
 
     try {
-      const result: QueryResult = await this.pool.query(
-        'SELECT * FROM staff_availability WHERE user_id = $1 AND org_id = $2',
-        [userId, orgId]
-      );
-
-      if (result.rows.length === 0) return null;
-
-      const row = result.rows[0];
+      const doc = await this.collection.findOne({ userId, orgId });
+      if (!doc) {
+        return null;
+      }
       return {
-        userId: row.user_id,
-        orgId: row.org_id,
-        status: row.status as 'available' | 'busy' | 'away' | 'offline',
-        updatedAt: row.updated_at,
-        skills: row.skills,
+        userId: doc.userId,
+        orgId: doc.orgId,
+        status: doc.status,
+        updatedAt: doc.updatedAt,
+        skills: doc.skills,
       };
-    } catch (e) {
-      console.error('Failed to get availability:', e);
-      const key = `${userId}:${orgId}`;
+    } catch (error) {
+      console.error('Failed to read availability from MongoDB, falling back to memory store:', error);
+      const key = this.getMemoryKey(userId, orgId);
       return this.memoryStore.get(key) || null;
     }
   }
 
   async close() {
-    if (this.pool) {
-      await this.pool.end();
-    }
+    // Mongo client is managed globally; nothing to close per-repository.
   }
 }
 

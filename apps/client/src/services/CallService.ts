@@ -84,6 +84,7 @@ export class CallService {
     onEnded,
     onAppointmentUpdate,
     onError,
+    onRemoteStream,
   }: {
     targetStaffId?: string;
     department?: string;
@@ -94,6 +95,7 @@ export class CallService {
     onEnded?: (info: { callId: string; reason?: string }) => void;
     onAppointmentUpdate?: (info: AppointmentUpdateEvent) => void;
     onError?: (error: Error) => void;
+    onRemoteStream?: (info: { callId: string; stream: MediaStream }) => void;
   }): Promise<{ callId: string; roomName: string } | null> {
     if (!ENABLE_UNIFIED) {
       console.warn('Unified mode disabled');
@@ -210,6 +212,9 @@ export class CallService {
             callData.remoteStream = remoteStream;
             // Trigger update by re-setting the call data
             this.activeCalls.set(callId, { ...callData, remoteStream });
+          }
+          if (onRemoteStream) {
+            onRemoteStream({ callId, stream: remoteStream });
           }
         }
       };

@@ -1,742 +1,881 @@
-// Location Database for Sai Vidya Institute of Technology
-// Contains all locations across 3 floors
-
 export interface Location {
+  key: string;
   name: string;
-  room_number?: string | null;
-  category: string;
-  keywords: string[];
-  coordinates: { x: number; y: number };
-  description: string;
   floor: number;
   floor_name: string;
-  key: string;
-  is_entry_point?: boolean;
+  description: string;
+  steps: string[];
+  citations: number[];
+  keywords: string[];
+  startingPoint: string;
+  room_number: string | null;
+  building: string;
+  coordinates?: { x: number; y: number } | null;
 }
 
-export interface FloorData {
-  floor_number: number;
-  floor_name: string;
-  locations: { [key: string]: Omit<Location, 'floor' | 'floor_name' | 'key'> };
+export const BUILDING_NAME = 'Sai Vidya Institution of Technology';
+export const STARTING_POINT =
+  'Outside the Ground Floor main central entrance (approaching the corridor between the Gymnasium and UPS rooms).';
+
+type FloorKey = 'groundFloor' | 'firstFloor' | 'secondFloor';
+
+const FLOOR_META: Record<FloorKey, { level: number; label: string }> = {
+  groundFloor: { level: 0, label: 'Ground Floor' },
+  firstFloor: { level: 1, label: 'First Floor' },
+  secondFloor: { level: 2, label: 'Second Floor' },
+};
+
+interface RawRoom {
+  floor: FloorKey;
+  name: string;
+  directions: string;
 }
 
-export const BUILDING_LOCATIONS: { [key: string]: FloorData } = {
-  "GROUND_FLOOR": {
-    floor_number: 0,
-    floor_name: "Ground Floor",
-    locations: {
-      "library": {
-        name: "Library Information Center",
-        room_number: "019",
-        category: "academic",
-        keywords: ["library", "books", "reading room", "study"],
-        coordinates: { x: 450, y: 300 },
-        description: "Main library with book collection and reading area"
-      },
-      "computer_center": {
-        name: "Computer Center",
-        room_number: "021",
-        category: "academic",
-        keywords: ["computer center", "computers", "lab"],
-        coordinates: { x: 380, y: 250 },
-        description: "Computer center with multiple workstations"
-      },
-      "director_room": {
-        name: "Director's Room",
-        room_number: null,
-        category: "administrative",
-        keywords: ["director", "director office", "director room"],
-        coordinates: { x: 150, y: 400 },
-        description: "Director's office"
-      },
-      "vice_principal": {
-        name: "Vice Principal Office",
-        room_number: null,
-        category: "administrative",
-        keywords: ["vice principal", "vp office"],
-        coordinates: { x: 180, y: 350 },
-        description: "Vice Principal's office"
-      },
-      "secretary_chamber": {
-        name: "Secretary Chamber",
-        room_number: null,
-        category: "administrative",
-        keywords: ["secretary", "secretary office"],
-        coordinates: { x: 200, y: 400 },
-        description: "Secretary's chamber"
-      },
-      "administrative_office": {
-        name: "Administrative Office",
-        room_number: "022",
-        category: "administrative",
-        keywords: ["admin", "administrative", "office"],
-        coordinates: { x: 250, y: 350 },
-        description: "Main administrative office"
-      },
-      "board_room": {
-        name: "Board Room",
-        room_number: null,
-        category: "meeting",
-        keywords: ["board room", "meeting room", "conference"],
-        coordinates: { x: 220, y: 450 },
-        description: "Board room for meetings"
-      },
-      "geology_lab": {
-        name: "Geology Lab",
-        room_number: null,
-        category: "lab",
-        keywords: ["geology", "geology lab"],
-        coordinates: { x: 500, y: 350 },
-        description: "Geology laboratory"
-      },
-      "survey_lab": {
-        name: "Survey Lab",
-        room_number: null,
-        category: "lab",
-        keywords: ["survey", "survey lab"],
-        coordinates: { x: 520, y: 300 },
-        description: "Survey laboratory"
-      },
-      "bmt_lab": {
-        name: "BMT Lab",
-        room_number: null,
-        category: "lab",
-        keywords: ["bmt", "bmt lab"],
-        coordinates: { x: 540, y: 250 },
-        description: "BMT laboratory"
-      },
-      "relay_high_voltage_lab": {
-        name: "Relay and High Voltage Lab",
-        room_number: "002",
-        category: "lab",
-        keywords: ["relay lab", "high voltage", "voltage lab"],
-        coordinates: { x: 200, y: 250 },
-        description: "Relay and high voltage laboratory"
-      },
-      "railway_skills": {
-        name: "Railway Skills Development",
-        room_number: "005",
-        category: "training",
-        keywords: ["railway", "railway skills", "skills development"],
-        coordinates: { x: 350, y: 450 },
-        description: "Railway skills development center"
-      },
-      "language_lab": {
-        name: "Language Lab",
-        room_number: "007",
-        category: "lab",
-        keywords: ["language", "language lab"],
-        coordinates: { x: 400, y: 450 },
-        description: "Language laboratory"
-      },
-      "swamy_vivekanand_hall": {
-        name: "Swamy Vivekanand Seminar Hall",
-        room_number: "025",
-        category: "seminar",
-        keywords: ["seminar hall", "vivekanand", "swamy vivekanand", "hall"],
-        coordinates: { x: 550, y: 200 },
-        description: "Main seminar hall"
-      },
-      "gymnasium": {
-        name: "Gymnasium & Fitness",
-        room_number: null,
-        category: "facility",
-        keywords: ["gym", "gymnasium", "fitness", "sports"],
-        coordinates: { x: 500, y: 400 },
-        description: "Gymnasium and fitness center"
-      },
-      "reception": {
-        name: "Reception & Waiting Room",
-        room_number: null,
-        category: "facility",
-        keywords: ["reception", "waiting room", "front desk"],
-        coordinates: { x: 120, y: 350 },
-        is_entry_point: true,
-        description: "Main reception and waiting area"
-      },
-      "medical_room": {
-        name: "Medical Room",
-        room_number: null,
-        category: "facility",
-        keywords: ["medical", "health", "first aid", "clinic"],
-        coordinates: { x: 270, y: 400 },
-        description: "Medical room for first aid"
-      },
-      "sports_room": {
-        name: "Sports Room",
-        room_number: "003",
-        category: "facility",
-        keywords: ["sports", "sports room"],
-        coordinates: { x: 450, y: 450 },
-        description: "Sports equipment room"
-      },
-      "generator_room": {
-        name: "Generator Room",
-        room_number: null,
-        category: "utility",
-        keywords: ["generator", "power"],
-        coordinates: { x: 100, y: 200 },
-        description: "Generator room"
-      },
-      "ncc_room": {
-        name: "NCC Room",
-        room_number: null,
-        category: "activity",
-        keywords: ["ncc", "national cadet corps"],
-        coordinates: { x: 120, y: 250 },
-        description: "NCC activities room"
-      },
-      "dept_maths": {
-        name: "Department of Mathematics",
-        room_number: null,
-        category: "department",
-        keywords: ["maths", "mathematics", "dept of maths"],
-        coordinates: { x: 300, y: 300 },
-        description: "Mathematics department"
-      },
-      "cse_research_center": {
-        name: "CSE Dept Research Center",
-        room_number: null,
-        category: "research",
-        keywords: ["cse research", "research center"],
-        coordinates: { x: 150, y: 150 },
-        description: "CSE department research center"
-      },
-      "boys_washroom_gf": {
-        name: "Boys Washroom (Ground Floor)",
-        room_number: null,
-        category: "washroom",
-        keywords: ["boys washroom", "men's room", "gents toilet"],
-        coordinates: { x: 170, y: 100 },
-        description: "Boys washroom on ground floor"
-      },
-      "girls_washroom_gf": {
-        name: "Girls Washroom (Ground Floor)",
-        room_number: null,
-        category: "washroom",
-        keywords: ["girls washroom", "ladies room", "women's toilet"],
-        coordinates: { x: 190, y: 100 },
-        description: "Girls washroom on ground floor"
-      }
-    }
+const GROUND_FLOOR_ROOMS: RawRoom[] = [
+  {
+    floor: 'groundFloor',
+    name: 'GYMNASIUM & YOGA',
+    directions:
+      "Approach and enter the main central entrance. The 'GYMNASIUM & YOGA' [cite: 139] is the first room on your immediate left.",
   },
-  "FIRST_FLOOR": {
-    floor_number: 1,
-    floor_name: "First Floor",
-    locations: {
-      "hod_cse": {
-        name: "HOD CSE Cabin",
-        room_number: "108",
-        category: "hod",
-        keywords: ["hod cse", "cse head", "computer science hod"],
-        coordinates: { x: 500, y: 350 },
-        description: "Head of Department - Computer Science & Engineering"
-      },
-      "hod_ece": {
-        name: "HOD E&C Room",
-        room_number: "108",
-        category: "hod",
-        keywords: ["hod ece", "hod electronics", "electronics hod"],
-        coordinates: { x: 480, y: 350 },
-        description: "Head of Department - Electronics & Communication"
-      },
-      "cse_library": {
-        name: "CSE Department Library",
-        room_number: "102",
-        category: "library",
-        keywords: ["cse library", "computer science library"],
-        coordinates: { x: 450, y: 300 },
-        description: "Computer Science & Engineering department library"
-      },
-      "ise_library": {
-        name: "ISE Library",
-        room_number: "103",
-        category: "library",
-        keywords: ["ise library", "information science library"],
-        coordinates: { x: 470, y: 300 },
-        description: "Information Science & Engineering library"
-      },
-      "cyber_signal_lab": {
-        name: "Cyber Signal Lab-2",
-        room_number: "135",
-        category: "lab",
-        keywords: ["cyber lab", "signal lab", "cyber signal"],
-        coordinates: { x: 150, y: 200 },
-        description: "Cyber signal laboratory"
-      },
-      "aiml_lab_railways": {
-        name: "AIML Lab for Railways R&D",
-        room_number: "141",
-        category: "lab",
-        keywords: ["aiml lab", "railways lab", "ai ml lab"],
-        coordinates: { x: 250, y: 200 },
-        description: "AI/ML lab for railways research & development"
-      },
-      "vikram_sarabai_lab": {
-        name: "Dr. Vikram Sarabai Computer Lab",
-        room_number: "133",
-        category: "lab",
-        keywords: ["vikram sarabai", "computer lab 133"],
-        coordinates: { x: 300, y: 350 },
-        description: "Dr. Vikram Sarabai computer laboratory"
-      },
-      "room_104": {
-        name: "Room No 104",
-        room_number: "104",
-        category: "classroom",
-        keywords: ["room 104", "classroom 104"],
-        coordinates: { x: 420, y: 400 },
-        description: "Classroom 104"
-      },
-      "room_105": {
-        name: "Room No 105",
-        room_number: "105",
-        category: "classroom",
-        keywords: ["room 105", "classroom 105"],
-        coordinates: { x: 350, y: 450 },
-        description: "Classroom 105"
-      },
-      "room_106": {
-        name: "Room No 106",
-        room_number: "106",
-        category: "classroom",
-        keywords: ["room 106", "classroom 106"],
-        coordinates: { x: 380, y: 450 },
-        description: "Classroom 106"
-      },
-      "room_107": {
-        name: "Room No 107",
-        room_number: "107",
-        category: "classroom",
-        keywords: ["room 107", "classroom 107"],
-        coordinates: { x: 410, y: 450 },
-        description: "Classroom 107"
-      },
-      "cse_faculty_room": {
-        name: "CS Faculty Room",
-        room_number: null,
-        category: "faculty",
-        keywords: ["cse faculty", "cs faculty", "computer science faculty"],
-        coordinates: { x: 320, y: 320 },
-        description: "Computer Science faculty room"
-      },
-      "dept_cse_faculty_room2": {
-        name: "Dept CSE Faculty Room - 2",
-        room_number: null,
-        category: "faculty",
-        keywords: ["cse faculty room 2"],
-        coordinates: { x: 340, y: 280 },
-        description: "CSE faculty room 2"
-      },
-      "rd_center": {
-        name: "Research & Development Center",
-        room_number: "103",
-        category: "research",
-        keywords: ["research center", "r&d", "research and development"],
-        coordinates: { x: 490, y: 280 },
-        description: "Research & Development center"
-      },
-      "svit_club": {
-        name: "SVIT Club",
-        room_number: null,
-        category: "activity",
-        keywords: ["svit club", "student club"],
-        coordinates: { x: 440, y: 480 },
-        description: "SVIT student club"
-      },
-      "sudha_murthi": {
-        name: "Sudha Murthi Room",
-        room_number: "136",
-        category: "classroom",
-        keywords: ["sudha murthi", "room 136"],
-        coordinates: { x: 180, y: 200 },
-        description: "Sudha Murthi classroom"
-      },
-      "chanakya": {
-        name: "Chanakya Room",
-        room_number: "137",
-        category: "classroom",
-        keywords: ["chanakya", "room 137"],
-        coordinates: { x: 210, y: 200 },
-        description: "Chanakya classroom"
-      },
-      "ratan_tata": {
-        name: "Ratan Tata Room",
-        room_number: "138",
-        category: "classroom",
-        keywords: ["ratan tata", "room 138"],
-        coordinates: { x: 240, y: 200 },
-        description: "Ratan Tata classroom"
-      },
-      "cnr_rao": {
-        name: "CNR RAO Room",
-        room_number: "139",
-        category: "classroom",
-        keywords: ["cnr rao", "room 139"],
-        coordinates: { x: 270, y: 200 },
-        description: "CNR RAO classroom"
-      },
-      "boys_washroom_1f": {
-        name: "Boys Washroom (First Floor)",
-        room_number: null,
-        category: "washroom",
-        keywords: ["boys washroom first floor", "gents toilet 1st"],
-        coordinates: { x: 280, y: 380 },
-        description: "Boys washroom on first floor"
-      },
-      "girls_washroom_1f": {
-        name: "Girls Washroom (First Floor)",
-        room_number: null,
-        category: "washroom",
-        keywords: ["girls washroom first floor", "ladies room 1st"],
-        coordinates: { x: 300, y: 380 },
-        description: "Girls washroom on first floor"
-      }
-    }
+  {
+    floor: 'groundFloor',
+    name: 'DEPT OF LAB',
+    directions:
+      "Approach and enter the main central entrance. Turn left. [cite_start]The 'DEPT OF LAB' [cite: 140] is the second room on the left.",
   },
-  "SECOND_FLOOR": {
-    floor_number: 2,
-    floor_name: "Second Floor",
-    locations: {
-      "hod_ds": {
-        name: "DS HOD Room",
-        room_number: "LH-205",
-        category: "hod",
-        keywords: ["hod ds", "data science hod", "ds head"],
-        coordinates: { x: 180, y: 320 },
-        description: "Head of Department - Data Science"
-      },
-      "hod_aiml": {
-        name: "AIML HOD Room",
-        room_number: null,
-        category: "hod",
-        keywords: ["hod aiml", "ai ml hod"],
-        coordinates: { x: 200, y: 320 },
-        description: "Head of Department - AI & ML"
-      },
-      "hod_mechanical": {
-        name: "HOD Mechanical",
-        room_number: null,
-        category: "hod",
-        keywords: ["hod mechanical", "mechanical head"],
-        coordinates: { x: 500, y: 450 },
-        description: "Head of Department - Mechanical Engineering"
-      },
-      "hod_civil": {
-        name: "CIVIL HOD",
-        room_number: null,
-        category: "hod",
-        keywords: ["hod civil", "civil head"],
-        coordinates: { x: 480, y: 450 },
-        description: "Head of Department - Civil Engineering"
-      },
-      "lh_201": {
-        name: "Lecture Hall 201",
-        room_number: "LH-201",
-        category: "classroom",
-        keywords: ["lh 201", "lecture hall 201", "room 201"],
-        coordinates: { x: 350, y: 200 },
-        description: "Lecture hall 201"
-      },
-      "lh_202": {
-        name: "Lecture Hall 202",
-        room_number: "LH-202",
-        category: "classroom",
-        keywords: ["lh 202", "lecture hall 202", "room 202"],
-        coordinates: { x: 380, y: 200 },
-        description: "Lecture hall 202"
-      },
-      "lh_203": {
-        name: "Lecture Hall 203",
-        room_number: "LH-203",
-        category: "classroom",
-        keywords: ["lh 203", "lecture hall 203", "room 203"],
-        coordinates: { x: 410, y: 200 },
-        description: "Lecture hall 203"
-      },
-      "lh_204": {
-        name: "Lecture Hall 204",
-        room_number: "LH-204",
-        category: "classroom",
-        keywords: ["lh 204", "lecture hall 204", "room 204"],
-        coordinates: { x: 440, y: 200 },
-        description: "Lecture hall 204"
-      },
-      "lh_206": {
-        name: "Lecture Hall 206",
-        room_number: "LH-206",
-        category: "classroom",
-        keywords: ["lh 206", "lecture hall 206", "room 206"],
-        coordinates: { x: 300, y: 350 },
-        description: "Lecture hall 206"
-      },
-      "lh_207": {
-        name: "Lecture Hall 207",
-        room_number: "LH-207",
-        category: "classroom",
-        keywords: ["lh 207", "lecture hall 207", "room 207"],
-        coordinates: { x: 150, y: 200 },
-        description: "Lecture hall 207"
-      },
-      "lh_208": {
-        name: "Lecture Hall 208",
-        room_number: "LH-208",
-        category: "classroom",
-        keywords: ["lh 208", "lecture hall 208", "room 208"],
-        coordinates: { x: 180, y: 200 },
-        description: "Lecture hall 208"
-      },
-      "lh_209": {
-        name: "Lecture Hall 209",
-        room_number: "LH-209",
-        category: "classroom",
-        keywords: ["lh 209", "lecture hall 209", "room 209"],
-        coordinates: { x: 210, y: 200 },
-        description: "Lecture hall 209"
-      },
-      "lh_210": {
-        name: "Lecture Hall 210",
-        room_number: "LH-210",
-        category: "classroom",
-        keywords: ["lh 210", "lecture hall 210", "room 210"],
-        coordinates: { x: 240, y: 200 },
-        description: "Lecture hall 210"
-      },
-      "lh_211": {
-        name: "Lecture Hall 211",
-        room_number: "LH-211",
-        category: "classroom",
-        keywords: ["lh 211", "lecture hall 211", "room 211"],
-        coordinates: { x: 270, y: 200 },
-        description: "Lecture hall 211"
-      },
-      "lh_236": {
-        name: "Lecture Hall 236",
-        room_number: "LH-236",
-        category: "classroom",
-        keywords: ["lh 236", "lecture hall 236", "room 236"],
-        coordinates: { x: 150, y: 350 },
-        description: "Lecture hall 236"
-      },
-      "lh_237": {
-        name: "Lecture Hall 237",
-        room_number: "LH-237",
-        category: "classroom",
-        keywords: ["lh 237", "lecture hall 237", "room 237"],
-        coordinates: { x: 180, y: 350 },
-        description: "Lecture hall 237"
-      },
-      "lh_238": {
-        name: "Lecture Hall 238",
-        room_number: "LH-238",
-        category: "classroom",
-        keywords: ["lh 238", "lecture hall 238", "room 238"],
-        coordinates: { x: 210, y: 350 },
-        description: "Lecture hall 238"
-      },
-      "lh_239": {
-        name: "Lecture Hall 239",
-        room_number: "LH-239",
-        category: "classroom",
-        keywords: ["lh 239", "lecture hall 239", "room 239"],
-        coordinates: { x: 240, y: 350 },
-        description: "Lecture hall 239"
-      },
-      "lh_240": {
-        name: "Lecture Hall 240",
-        room_number: "LH-240",
-        category: "classroom",
-        keywords: ["lh 240", "lecture hall 240", "room 240"],
-        coordinates: { x: 270, y: 350 },
-        description: "Lecture hall 240"
-      },
-      "lh_241": {
-        name: "Lecture Hall 241",
-        room_number: "LH-241",
-        category: "classroom",
-        keywords: ["lh 241", "lecture hall 241", "room 241"],
-        coordinates: { x: 300, y: 350 },
-        description: "Lecture hall 241"
-      },
-      "aiml_lab_2f": {
-        name: "AIML Lab",
-        room_number: null,
-        category: "lab",
-        keywords: ["aiml lab second floor", "ai ml lab 2nd"],
-        coordinates: { x: 250, y: 450 },
-        description: "AI/ML laboratory on second floor"
-      },
-      "cse_ds_lab": {
-        name: "CSE(DS) Dept Lab-1",
-        room_number: null,
-        category: "lab",
-        keywords: ["data science lab", "ds lab", "cse ds lab"],
-        coordinates: { x: 280, y: 450 },
-        description: "Data Science department lab 1"
-      },
-      "cse_aiml_lab": {
-        name: "Dept of CSE (AIML) Lab",
-        room_number: null,
-        category: "lab",
-        keywords: ["cse aiml lab"],
-        coordinates: { x: 310, y: 450 },
-        description: "CSE AI/ML department lab"
-      },
-      "ise_computer_lab": {
-        name: "Dept of ISE Computer Lab",
-        room_number: null,
-        category: "lab",
-        keywords: ["ise lab", "information science lab"],
-        coordinates: { x: 350, y: 400 },
-        description: "Information Science & Engineering computer lab"
-      },
-      "civil_cad_lab": {
-        name: "Civil & Mechanical CAD Lab",
-        room_number: null,
-        category: "lab",
-        keywords: ["cad lab", "civil lab", "mechanical lab"],
-        coordinates: { x: 450, y: 400 },
-        description: "CAD lab for Civil & Mechanical departments"
-      },
-      "ise_dept": {
-        name: "Department of Information Science & Engineering",
-        room_number: null,
-        category: "department",
-        keywords: ["ise department", "information science department"],
-        coordinates: { x: 380, y: 450 },
-        description: "Information Science & Engineering department"
-      },
-      "civil_mechanical_staff": {
-        name: "Civil & Mechanical Staff Room",
-        room_number: null,
-        category: "faculty",
-        keywords: ["civil staff", "mechanical staff"],
-        coordinates: { x: 420, y: 350 },
-        description: "Civil & Mechanical departments staff room"
-      },
-      "cse_aiml_staff": {
-        name: "Dept of CSE (AIML) Staff Room",
-        room_number: null,
-        category: "faculty",
-        keywords: ["aiml staff", "cse aiml staff"],
-        coordinates: { x: 380, y: 480 },
-        description: "CSE AI/ML staff room"
-      },
-      "data_science_staff": {
-        name: "Dept Data Science Staff Room",
-        room_number: null,
-        category: "faculty",
-        keywords: ["data science staff", "ds staff"],
-        coordinates: { x: 410, y: 480 },
-        description: "Data Science staff room"
-      },
-      "ece_faculty_room2": {
-        name: "Dept of ECE Faculty Room-2",
-        room_number: null,
-        category: "faculty",
-        keywords: ["ece faculty room 2"],
-        coordinates: { x: 320, y: 200 },
-        description: "ECE faculty room 2"
-      },
-      "seminar_hall_2f": {
-        name: "Seminar Hall",
-        room_number: null,
-        category: "seminar",
-        keywords: ["seminar hall second floor"],
-        coordinates: { x: 200, y: 400 },
-        description: "Seminar hall on second floor"
-      },
-      "library_2f": {
-        name: "Library",
-        room_number: null,
-        category: "library",
-        keywords: ["library second floor"],
-        coordinates: { x: 250, y: 350 },
-        description: "Library on second floor"
-      },
-      "civil_classroom": {
-        name: "Civil Class Room",
-        room_number: null,
-        category: "classroom",
-        keywords: ["civil classroom"],
-        coordinates: { x: 520, y: 400 },
-        description: "Civil engineering classroom"
-      },
-      "iqac": {
-        name: "Internal Quality Assurance Cell (IQAC)",
-        room_number: null,
-        category: "administrative",
-        keywords: ["iqac", "quality assurance"],
-        coordinates: { x: 330, y: 200 },
-        description: "Internal Quality Assurance Cell"
-      },
-      "nss_cell": {
-        name: "NSS Cell",
-        room_number: null,
-        category: "activity",
-        keywords: ["nss", "nss cell"],
-        coordinates: { x: 280, y: 280 },
-        description: "National Service Scheme cell"
-      },
-      "sangam_cultural": {
-        name: "Sangam Cultural",
-        room_number: null,
-        category: "activity",
-        keywords: ["sangam", "cultural", "sangam cultural"],
-        coordinates: { x: 310, y: 280 },
-        description: "Sangam cultural activities room"
-      },
-      "career_guidance": {
-        name: "Career Guidance Cell",
-        room_number: null,
-        category: "facility",
-        keywords: ["career guidance", "placement", "career cell"],
-        coordinates: { x: 550, y: 200 },
-        description: "Career guidance and placement cell"
-      },
-      "ds_faculty_room": {
-        name: "Faculty DS Room",
-        room_number: null,
-        category: "faculty",
-        keywords: ["data science faculty room"],
-        coordinates: { x: 220, y: 450 },
-        description: "Data Science faculty room"
-      },
-      "boys_common_room_2f": {
-        name: "Boys Common Room",
-        room_number: null,
-        category: "facility",
-        keywords: ["boys common room second floor"],
-        coordinates: { x: 380, y: 320 },
-        description: "Boys common room on second floor"
-      },
-      "boys_washroom_2f": {
-        name: "Boys Wash Room (Second Floor)",
-        room_number: null,
-        category: "washroom",
-        keywords: ["boys washroom second floor", "gents toilet 2nd"],
-        coordinates: { x: 400, y: 280 },
-        description: "Boys washroom on second floor"
-      },
-      "girls_washroom_2f": {
-        name: "Girls Wash Room (Second Floor)",
-        room_number: null,
-        category: "washroom",
-        keywords: ["girls washroom second floor", "ladies room 2nd"],
-        coordinates: { x: 280, y: 250 },
-        description: "Girls washroom on second floor"
-      }
-    }
-  }
-};
+  {
+    floor: 'groundFloor',
+    name: 'COMPUTER CENTER 01',
+    directions:
+      "Approach and enter the main central entrance. Turn left. [cite_start]The 'COMPUTER CENTER 01' [cite: 141] is the third room on the left.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'LIBRARY CENTER',
+    directions:
+      "Approach and enter the main central entrance. Turn left. [cite_start]Walk to the end of this corridor[cite: 146]. [cite_start]The 'LIBRARY CENTER' [cite: 142] is the last room on the left.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'UPS (East)',
+    directions:
+      "Approach and enter the main central entrance. [cite_start]The 'UPS' room [cite: 170] is the first room on your immediate right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'Medical Room',
+    directions:
+      "Approach and enter the main central entrance. Turn right. [cite_start]The 'Medical Room' [cite: 171] is the second room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'East Staircase/Lift',
+    directions:
+      "Approach and enter the main central entrance. Turn right. [cite_start]Walk past the 'UPS' [cite: 170] [cite_start]and 'Medical Room'[cite: 171]. The staircase and lift lobby is on your right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'AUDITORIUM',
+    directions:
+      "Approach and enter the main central entrance. Turn right. [cite_start]Walk past the 'Medical Room'[cite: 171]. [cite_start]The 'AUDITORIUM' [cite: 169] is the large room on your left.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'SWAMY VIVEKANAND SEMINAR HALL',
+    directions:
+      "Approach and enter the main central entrance. [cite_start]Turn right and walk past the 'AUDITORIUM'[cite: 169]. [cite_start]Turn right into the next corridor[cite: 174]. [cite_start]The 'SWAMY VIVEKANAND SEMINAR HALL' [cite: 175] is the large room on your left.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'GEOLOGY LAB',
+    directions:
+      "Approach and enter the main central entrance. [cite_start]Turn right, walk to the end of the top corridor (past the 'AUDITORIUM' [cite: 169]). Turn right. [cite_start]The 'GEOLOGY LAB' [cite: 178] is the first room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'SURVEY LAB',
+    directions:
+      "Approach and enter the main central entrance. Turn right, walk to the end of the top corridor. Turn right. [cite_start]The 'SURVEY LAB' [cite: 179] is the second room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'BMT LAB',
+    directions:
+      "Approach and enter the main central entrance. Turn right, walk to the end of the top corridor. Turn right. [cite_start]The 'BMT LAB' [cite: 180] is the last room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'West Staircase/Lift',
+    directions:
+      "Approach and enter the main central entrance. Turn left. [cite_start]Walk to the end of this corridor, past the 'LIBRARY CENTER'[cite: 142]. [cite_start]Turn left into the vertical corridor[cite: 149]. The staircase and lift lobby is on your right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'DIRECTOR ROOM',
+    directions:
+      "Approach and enter the main central entrance. Turn left. [cite_start]The 'DIRECTOR ROOM' [cite: 137] is the first room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'PRINCIPAL CHAMBER',
+    directions:
+      "Approach and enter the main central entrance. Turn left. [cite_start]Walk past the 'DIRECTOR ROOM'[cite: 137]. [cite_start]The 'PRINCIPAL CHAMBER' [cite: 130] is the second room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'BOARD ROOM',
+    directions:
+      "Approach and enter the main central entrance. Turn left. [cite_start]Walk past the 'PRINCIPAL CHAMBER'[cite: 130]. [cite_start]The 'BOARD ROOM' [cite: 129] is the third room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'ADMIN ROOM',
+    directions:
+      "Approach and enter the main central entrance. Turn left. [cite_start]Walk past the 'BOARD ROOM'[cite: 129]. [cite_start]The 'ADMIN ROOM' [cite: 145] is the fourth room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'UPS (West)',
+    directions:
+      "Approach and enter the main central entrance. Turn left. [cite_start]Walk past the 'ADMIN ROOM'[cite: 145]. [cite_start]The 'UPS' room [cite: 167] is the fifth room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'TRAINING AND PLACEMENT CENTER',
+    directions:
+      "Approach and enter the main central entrance. Turn left, walk to the end of the top corridor, and turn left again. [cite_start]The 'TRAINING AND PLACEMENT CENTER' [cite: 132] is the first room on your left.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'ENTREPRENEURSHIP AND INCUBATION',
+    directions:
+      "Approach and enter the main central entrance. Turn left, walk to the end of the top corridor, and turn left. [cite_start]This center [cite: 147] is the second room on the left.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'Dept of Maths',
+    directions:
+      "Approach and enter the main central entrance. Turn left, walk to the end of the top corridor, and turn left. [cite_start]The 'Dept of Maths' [cite: 150] is the third room on the left.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'WASH ROOM (West)',
+    directions:
+      "Approach and enter the main central entrance. Turn left, walk to the end of the top corridor, and turn left. [cite_start]The 'WASH ROOM' [cite: 151] is the last room on the left, before the lift.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'Vice Principal',
+    directions:
+      "Go to the West Staircase (enter, turn left, walk to end, turn left). Walk down the long vertical corridor. [cite_start]The 'Vice Principal's' office [cite: 156] is the first room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'NOC ROOM',
+    directions:
+      "Go to the West Staircase. [cite_start]Walk down the vertical corridor past the 'Vice Principal's' office[cite: 156]. [cite_start]The 'NOC ROOM' [cite: 157] is the next room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'STORE ROOM',
+    directions:
+      "Go to the West Staircase. [cite_start]Walk down the vertical corridor past the 'NOC ROOM'[cite: 157]. [cite_start]The 'STORE ROOM' [cite: 158] is the next room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'SPORTS ROOM 003',
+    directions:
+      "Go to the West Staircase. Walk down the vertical corridor. [cite_start]The 'SPORTS ROOM' [cite: 164] [cite_start]is the large room on the right, past the 'STORE ROOM'[cite: 158].",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'WASH ROOM (South)',
+    directions:
+      "Go to the West Staircase. [cite_start]Walk down the vertical corridor past the 'SPORTS ROOM'[cite: 164]. [cite_start]The 'WASH ROOM' [cite: 165] is the next room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'ROOM NO 001',
+    directions:
+      "Go to the West Staircase. Walk down the vertical corridor. [cite_start]'ROOM NO 001' [cite: 161] is the second to last room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'RAILWAY DEVELOPMENT',
+    directions:
+      "Go to the West Staircase. Walk down the vertical corridor. [cite_start]The 'RAILWAY DEVELOPMENT' room [cite: 195] is the last room on the right.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'LANGUAGE LAB',
+    directions:
+      "Go to the West Staircase. Walk down the vertical corridor. [cite_start]The 'LANGUAGE LAB' [cite: 162] is the last room on the left.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'ROOM NO 002',
+    directions:
+      "Go to the West Staircase. Walk down the vertical corridor. [cite_start]'ROOM NO 002' [cite: 160] is the second to last room on the left.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'Basic and High...',
+    directions:
+      "Go to the West Staircase. Walk down the vertical corridor. [cite_start]This room [cite: 159] is the third room on the left.",
+  },
+  {
+    floor: 'groundFloor',
+    name: 'HOD',
+    directions:
+      "Go to the West Staircase. Walk down the vertical corridor. [cite_start]The 'HOD' room [cite: 154] is the second room on the left.",
+  },
+];
 
-export const FLOOR_CONNECTIONS = {
-  stairs: {
-    ground_to_first: { x: 320, y: 280 },
-    first_to_second: { x: 420, y: 320 }
+const FIRST_FLOOR_ROOMS: RawRoom[] = [
+  {
+    floor: 'firstFloor',
+    name: 'library',
+    directions:
+      "Approach and enter the main Ground Floor entrance. [cite_start]Turn right, walk past the UPS [cite: 170] rooms to the East Staircase. Take the stairs/lift to the First Floor. [cite_start]The 'library' [cite: 234] is immediately on your right.",
   },
-  lift: {
-    all_floors: { x: 340, y: 300 }
+  {
+    floor: 'firstFloor',
+    name: 'ROOM NO 141',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase (on right). Go to the First Floor. [cite_start]Turn right and walk past the 'library'[cite: 234]. [cite_start]'ROOM NO 141' [cite: 268] is at the end of the corridor.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'ROOM NO 140',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. [cite_start]Turn right and walk past the 'library'[cite: 234]. [cite_start]'ROOM NO 140' [cite: 248] is the second to last room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'ROOM NO 139',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. [cite_start]Turn right and walk past the 'library'[cite: 234]. [cite_start]'ROOM NO 139' [cite: 247] is the third to last room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'ROOM NO 138',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. [cite_start]Turn right and walk past the 'library'[cite: 234]. [cite_start]'ROOM NO 138' [cite: 246] is the fourth to last room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'ROOM NO 137',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. [cite_start]Turn right and walk past the 'library'[cite: 234]. [cite_start]'ROOM NO 137' [cite: 245] is the fifth to last room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'ROOM NO 136',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. [cite_start]Turn right and walk past the 'library'[cite: 234]. [cite_start]'ROOM NO 136' [cite: 244] is the sixth to last room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'ROOM NO 135 (East)',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. [cite_start]Turn right and walk past the 'library'[cite: 234]. [cite_start]'ROOM NO 135' [cite: 242] is the seventh to last room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Gents Rest Room',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. [cite_start]Walk straight ahead into the 4.2 WIDE CORRIDOR[cite: 224]. [cite_start]The 'Gents Rest Room' [cite: 231] is on your left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Girls Rest Room',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. Walk straight ahead. [cite_start]The 'Girls Rest Room' [cite: 227] is on your right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Dr.Vikram Sarabai Computer Lab 133',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. Walk straight ahead. [cite_start]The lab [cite: 219] [cite_start]is the large room on your right, past the 'Girls Rest Room'[cite: 227].",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Dept CSE Faculty Room-2',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. [cite_start]Walk straight ahead to the end of the 4.2 WIDE CORRIDOR[cite: 224]. [cite_start]This room [cite: 218] is on your right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'CS Faculty Room',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. [cite_start]Walk straight ahead into the 4.2 WIDE CORRIDOR[cite: 224], then turn left. [cite_start]The 'CS Faculty Room' [cite: 239] is the first room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'CSE Dept Labrary-102',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. Walk straight ahead, then turn left. [cite_start]The 'CSE Dept Labrary-102' [cite: 256] is the first room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Dept of ISE Research...',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. Walk straight ahead, then turn left. [cite_start]This room [cite: 260] is the second room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'CNR RAO',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase (on right). Go to the First Floor. [cite_start]Turn left into the 2.45 WIDE CORRIDOR[cite: 208]. [cite_start]The 'CNR RAO' room [cite: 217] is the first room on your left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Ratan tata',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. Turn left. [cite_start]'Ratan tata' [cite: 216] is the second room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Chanukya',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. Turn left. [cite_start]'Chanukya' [cite: 215] is the third room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Sudha Murthi',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. Turn left. [cite_start]'Sudha Murthi' [cite: 214] is the fourth room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'AML Lab for Railways R&D',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. Turn left. [cite_start]This 'AML Lab' [cite: 213] is the fifth room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Gents Wash Room',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. Turn left. [cite_start]The 'Gents Wash Room' [cite: 205] is the sixth room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Cyber signal lab-2',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. Turn left. [cite_start]The 'Cyber signal lab-2' [cite: 204] is the seventh room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Platonic lab for railway RD',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. Turn left. [cite_start]The 'Platonic lab' [cite: 203] is the eighth room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Room no 123',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the First Floor. Turn left. Walk to the end of the corridor. [cite_start]'Room no 123' [cite: 202] is the last room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'West Staircase/Lift',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Turn left, walk to the end of the top corridor, and turn left again. The West Staircase and lift lobby is on your right. Take the stairs/lift to the First Floor.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Room no 122',
+    directions:
+      "Go to the West Staircase and go to the First Floor. [cite_start]'Room no 122' [cite: 209] is the first room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'IS Faculty',
+    directions:
+      "Go to the West Staircase and go to the First Floor. [cite_start]The 'IS Faculty' room [cite: 235] is the second room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'IS HOD Room',
+    directions:
+      "Go to the West Staircase and go to the First Floor. [cite_start]The 'IS HOD Room' [cite: 236] is the third room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'CS HOD Room',
+    directions:
+      "Go to the West Staircase and go to the First Floor. [cite_start]The 'CS HOD Room' [cite: 237] is the fourth room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Girls wash Room (West)',
+    directions:
+      "Go to the West Staircase and go to the First Floor. [cite_start]The 'Girls wash Room' [cite: 249] is the last room on the left, before the lift.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Dept of EC',
+    directions:
+      "Go to the West Staircase and go to the First Floor. [cite_start]The 'Dept of EC' office [cite: 251] is on the right, by the staircase.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'EC Faculty Room',
+    directions:
+      "Go to the West Staircase. Go to the First Floor. Walk down the long vertical corridor. [cite_start]The 'EC Faculty Room' [cite: 269] is the first room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Room No 104',
+    directions:
+      "Go to the West Staircase. Go to the First Floor. Walk down the vertical corridor. [cite_start]'Room No 104' [cite: 272] is the second room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Room No 105',
+    directions:
+      "Go to the West Staircase. Go to the First Floor. Walk down the vertical corridor. [cite_start]'Room No 105' [cite: 280] is the third room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Room No 106',
+    directions:
+      "Go to the West Staircase. Go to the First Floor. Walk down the vertical corridor. [cite_start]'Room No 106' [cite: 281] is the fourth room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Room No 107',
+    directions:
+      "Go to the West Staircase. Go to the First Floor. Walk down the vertical corridor. [cite_start]'Room No 107' [cite: 282] is the fifth room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'Girls Wash Room (South)',
+    directions:
+      "Go to the West Staircase. Go to the First Floor. Walk down the vertical corridor. [cite_start]This 'Girls Wash Room' [cite: 283] is the sixth room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'SVIT Club',
+    directions:
+      "Go to the West Staircase. Go to the First Floor. Walk down the vertical corridor. [cite_start]The 'SVIT Club' [cite: 284] is the seventh room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'ROOM NO 108',
+    directions:
+      "Go to the West Staircase. Go to the First Floor. Walk down the vertical corridor. [cite_start]'ROOM NO 108' [cite: 297] is the last room on the right.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'EPC LAB-1',
+    directions:
+      "Go to the West Staircase. Go to the First Floor. Walk down the long vertical corridor. [cite_start]The 'EPC LAB-1' [cite: 252] is the first room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'CN LAB',
+    directions:
+      "Go to the West Staircase. Go to the First Floor. Walk down the vertical corridor. [cite_start]The 'CN LAB' [cite: 253] is the second room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'ROOM NO 135 (West)',
+    directions:
+      "Go to the West Staircase. Go to the First Floor. Walk down the vertical corridor. [cite_start]'ROOM NO 135' [cite: 292] is the third room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'VLSI Libarary',
+    directions:
+      "Go to the West Staircase. Go to the First Floor. Walk down the vertical corridor. [cite_start]The 'VLSI Libarary' [cite: 293] is the fourth room on the left.",
+  },
+  {
+    floor: 'firstFloor',
+    name: 'HOD',
+    directions:
+      "Go to the West Staircase. Go to the First Floor. Walk down the vertical corridor. [cite_start]The 'HOD' room [cite: 294] is the last room on the left.",
+  },
+];
+
+const SECOND_FLOOR_ROOMS: RawRoom[] = [
+  {
+    floor: 'secondFloor',
+    name: 'LIBRARY',
+    directions:
+      "Approach and enter the main Ground Floor entrance. [cite_start]Turn right, walk past the UPS [cite: 170] rooms to the East Staircase. Take the stairs/lift to the Second Floor. [cite_start]The 'LIBRARY' [cite: 63] is immediately on your right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'LH-240',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase (on right). Go to the Second Floor. [cite_start]Turn left into the 2.50 WIDE CORRIDOR[cite: 13]. [cite_start]'LH-240' [cite: 77] is the first room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'LH-201',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Turn left. [cite_start]'LH-201' [cite: 75] is the second room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'LH-202',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Turn left. [cite_start]'LH-202' [cite: 76] is the third room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'LH-203',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Turn left. [cite_start]'LH-203' [cite: 96] is the fourth room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'Dept of Basic Science & Engineering Computer Lab',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Turn left. [cite_start]This lab [cite: 43] is the fifth room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'CIVIL MECHANICAL STAFF ROOM',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Turn left. [cite_start]This staff room [cite: 42] is the sixth room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'HOD CIVIL',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Turn left. [cite_start]The 'HOD CIVIL' office [cite: 41] is the seventh room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'HOD MECHANICAL',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Turn left. [cite_start]The 'HOD MECHANICAL' office [cite: 40] is the eighth room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'COMPUTER LAB',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Turn left. [cite_start]The 'COMPUTER LAB' [cite: 37] is the ninth room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'SEMINAR HALL',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Turn left. [cite_start]The 'SEMINAR HALL' [cite: 35] is the tenth room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'DEPT OF CHE (AIML) STAFF ROOM',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Turn left. [cite_start]This staff room [cite: 33] is the eleventh room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'LH-236',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Turn left. [cite_start]'LH-236' [cite: 32] is the twelfth room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'Dept of... STAFF ROOM',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Turn left. [cite_start]This staff room [cite: 31] is the thirteenth room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'BOYS COMMON ROOM',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Turn left. Walk to the end of the corridor. [cite_start]The 'BOYS COMMON ROOM' [cite: 28] is the last room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'LH-239',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase (on right). Go to the Second Floor. [cite_start]Walk straight ahead into the 2.50 WIDE CORRIDOR[cite: 68]. [cite_start]'LH-239' [cite: 73] is the first room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'LH-238',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Walk straight. [cite_start]'LH-238' [cite: 71] is the second room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'LH-237',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Walk straight. [cite_start]'LH-237' [cite: 69] is the third room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'CLASS ROOM (East-Central)',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Walk straight. [cite_start]The 'CLASS ROOM' [cite: 45] is the first room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'CLASS ROOM (East-Central 2)',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Walk straight. [cite_start]This 'CLASS ROOM' [cite: 47] is the second room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'DEPT OF INFORMATION SCIENCE...',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Walk straight. [cite_start]This Dept [cite: 17] is the third room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'TOLET (North)',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Walk straight. [cite_start]This 'TOLET' [cite: 24] is the fourth room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'CIVIL & MECHANICAL CAD LAB',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Walk straight. [cite_start]This lab [cite: 23] is the fifth room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'TOLET (South)',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Walk straight. [cite_start]This 'TOLET' [cite: 26] is the sixth room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: '(AIML) LAB',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Walk straight. [cite_start]The '(AIML) LAB' [cite: 9] is the seventh room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'DEPT OF CSE (DS) LAB-1',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Go to the East Staircase. Go to the Second Floor. Walk straight. [cite_start]This lab [cite: 11] is the last room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'West Staircase/Lift',
+    directions:
+      "Approach and enter the main Ground Floor entrance. Turn left, walk to the end of the top corridor, and turn left again. The West Staircase and lift lobby is on your right. Take the stairs/lift to the Second Floor.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'CLASS ROOM (West 1)',
+    directions:
+      "Go to the West Staircase and go to the Second Floor. [cite_start]This 'CLASS ROOM' [cite: 54] is the first room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'CLASS ROOM (West 2)',
+    directions:
+      "Go to the West Staircase and go to the Second Floor. [cite_start]This 'CLASS ROOM' [cite: 55] is the second room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'DS HOD ROOM',
+    directions:
+      "Go to the West Staircase and go to the Second Floor. [cite_start]The 'DS HOD ROOM' [cite: 51] is the third room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'CLASS ROOM (West 3)',
+    directions:
+      "Go to the West Staircase and go to the Second Floor. [cite_start]This 'CLASS ROOM' [cite: 59] is the last room on the left, before the lift.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'DEPT PF ECE FACULTY ROOM-2',
+    directions:
+      "Go to the West Staircase. Go to the Second Floor. Walk down the long vertical corridor. [cite_start]This 'ECE Faculty Room' [cite: 53] is the first room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'CLASS ROOM (South-West)',
+    directions:
+      "Go to the West Staircase. Go to the Second Floor. Walk down the vertical corridor. [cite_start]This 'CLASS ROOM' [cite: 66] is the second room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'LH-211',
+    directions:
+      "Go to the West Staircase. Go to the Second Floor. Walk down the vertical corridor. [cite_start]'LH-211' [cite: 60] is the third room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'LH-210',
+    directions:
+      "Go to the West Staircase. Go to the Second Floor. Walk down the vertical corridor. [cite_start]'LH-210' [cite: 105] is the fourth room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'LH-209',
+    directions:
+      "Go to the West Staircase. Go to the Second Floor. Walk down the vertical corridor. [cite_start]'LH-209' [cite: 107] is the fifth room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'LH-208',
+    directions:
+      "Go to the West Staircase. Go to the Second Floor. Walk down the vertical corridor. [cite_start]'LH-208' [cite: 108] is the sixth room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'ECE DEPT LIBRARY',
+    directions:
+      "Go to the West Staircase. Go to the Second Floor. Walk down the vertical corridor. [cite_start]The 'ECE DEPT LIBRARY' [cite: 110] is the seventh room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'LH-207',
+    directions:
+      "Go to the West Staircase. Go to the Second Floor. Walk down the vertical corridor. [cite_start]'LH-207' [cite: 113] is the last room on the right.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'LH-205',
+    directions:
+      "Go to the West Staircase. Go to the Second Floor. Walk down the vertical corridor. [cite_start]'LH-205' [cite: 116] is the last room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'STAFF ROOM',
+    directions:
+      "Go to the West Staircase. Go to the Second Floor. Walk down the vertical corridor. [cite_start]The 'STAFF ROOM' [cite: 117] is the second to last room on the left.",
+  },
+  {
+    floor: 'secondFloor',
+    name: 'CELL',
+    directions:
+      "Go to the West Staircase. Go to the Second Floor. Walk down the vertical corridor. [cite_start]The 'CELL' [cite: 114] is the third to last room on the left.",
+  },
+];
+
+const RAW_ROOMS: RawRoom[] = [
+  ...GROUND_FLOOR_ROOMS,
+  ...FIRST_FLOOR_ROOMS,
+  ...SECOND_FLOOR_ROOMS,
+];
+
+const CITATION_PATTERN = /\[cite:\s*(\d+)\]/gi;
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function extractRoomNumber(name: string): string | null {
+  const roomMatch = name.match(/room\s*no\.?\s*(\d+[a-z]?)/i);
+  if (roomMatch) {
+    return roomMatch[1].toUpperCase();
   }
-};
+  const lhMatch = name.match(/lh[-\s]*(\d+)/i);
+  if (lhMatch) {
+    return `LH-${lhMatch[1]}`;
+  }
+  const numberMatch = name.match(/\b\d{2,3}[a-z]?\b/);
+  if (numberMatch) {
+    return numberMatch[0].toUpperCase();
+  }
+  return null;
+}
+
+function sanitizeDirections(text: string): { sanitized: string; citations: number[] } {
+  const citationSet = new Set<number>();
+  const withoutMarkers = text.replace(/\[cite_start\]/g, '');
+  const sanitized = withoutMarkers.replace(CITATION_PATTERN, (_match, value) => {
+    const numeric = parseInt(value, 10);
+    if (!Number.isNaN(numeric)) {
+      citationSet.add(numeric);
+      return `[${numeric}]`;
+    }
+    return '';
+  });
+  return {
+    sanitized: sanitized.replace(/\s+/g, ' ').trim(),
+    citations: Array.from(citationSet).sort((a, b) => a - b),
+  };
+}
+
+function splitIntoSteps(text: string): string[] {
+  const steps = text
+    .split(/(?<=[.?!])\s+(?=[A-Z(])/)
+    .map((step) => step.trim())
+    .filter(Boolean);
+  if (steps.length === 0 && text) {
+    return [text];
+  }
+  return steps;
+}
+
+function expandKeywords(name: string, roomNumber: string | null): string[] {
+  const keywords = new Set<string>();
+  const lowerName = name.toLowerCase();
+  keywords.add(lowerName);
+
+  const normalized = lowerName
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (normalized) {
+    keywords.add(normalized);
+  }
+
+  if (roomNumber) {
+    const lowerRoom = roomNumber.toLowerCase();
+    keywords.add(lowerRoom);
+    keywords.add(`room ${lowerRoom}`);
+    keywords.add(`room no ${lowerRoom}`);
+    keywords.add(`room number ${lowerRoom}`);
+    keywords.add(lowerRoom.replace('-', ' '));
+  }
+
+  const lhMatch = name.match(/LH[-\s]*(\d+)/i);
+  if (lhMatch) {
+    const lectureHall = lhMatch[1];
+    keywords.add(`lh ${lectureHall}`);
+    keywords.add(`lh-${lectureHall}`);
+    keywords.add(`lecture hall ${lectureHall}`);
+  }
+
+  if (normalized.includes('dept')) {
+    keywords.add(normalized.replace('dept', 'department'));
+  }
+
+  const tokens = normalized.split(' ').filter((token) => token.length > 3 || /\d/.test(token));
+  tokens.forEach((token) => keywords.add(token));
+
+  return Array.from(keywords);
+}
+
+export const ALL_LOCATIONS: Location[] = RAW_ROOMS.map((room) => {
+  const { level, label } = FLOOR_META[room.floor];
+  const { sanitized, citations } = sanitizeDirections(room.directions);
+  const steps = splitIntoSteps(sanitized);
+  const roomNumber = extractRoomNumber(room.name);
+  const keywords = expandKeywords(room.name, roomNumber);
+
+  return {
+    key: `${room.floor}-${slugify(room.name)}`,
+    name: room.name,
+    floor: level,
+    floor_name: label,
+    description: sanitized,
+    steps,
+    citations,
+    keywords,
+    startingPoint: STARTING_POINT,
+    room_number: roomNumber,
+    building: BUILDING_NAME,
+    coordinates: null,
+  };
+});
 

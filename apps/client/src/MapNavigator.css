@@ -215,6 +215,60 @@
   line-height: 1.5;
 }
 
+.call-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.call-confirm-actions button {
+  border: none;
+  border-radius: 9999px;
+  padding: 0.45rem 0.95rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.call-confirm-actions button.confirm {
+  background: #22c55e;
+  color: #ffffff;
+}
+
+.call-confirm-actions button.confirm:hover {
+  background: #16a34a;
+  transform: translateY(-1px);
+}
+
+.call-confirm-actions button.cancel {
+  background: #334155;
+  color: #ffffff;
+}
+
+.call-confirm-actions button.cancel:hover {
+  background: #1e293b;
+  transform: translateY(-1px);
+}
+
+.call-confirm-status {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.call-confirm-status.confirmed {
+  color: #22c55e;
+}
+
+.call-confirm-status.cancelled {
+  color: #f97316;
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
   .map-navigator {

@@ -207,10 +207,26 @@ export class StaffRTC {
     console.log('[StaffRTC] Event handlers attached for staffId:', this.staffId);
   }
 
-  async accept(callId: string, existingStream?: MediaStream): Promise<{ pc: RTCPeerConnection; stream: MediaStream; remoteStream: MediaStream | null } | null> {
+  async accept(
+    callId: string,
+    options?: MediaStream | { existingStream?: MediaStream; onRemoteStream?: (stream: MediaStream) => void }
+  ): Promise<{ pc: RTCPeerConnection; stream: MediaStream; remoteStream: MediaStream | null } | null> {
     if (!ENABLE_UNIFIED) return null;
 
     try {
+      let existingStream: MediaStream | undefined;
+      let onRemoteStream: ((stream: MediaStream) => void) | undefined;
+
+      if (options) {
+        if (typeof (options as MediaStream).getTracks === 'function') {
+          existingStream = options as MediaStream;
+        } else {
+          const opts = options as { existingStream?: MediaStream; onRemoteStream?: (stream: MediaStream) => void };
+          existingStream = opts.existingStream;
+          onRemoteStream = opts.onRemoteStream;
+        }
+      }
+
       // Refresh token if needed before accepting
       let res = await fetch(`${this.apiBase}/api/v1/calls/${callId}/accept`, {
         method: 'POST',
@@ -345,6 +361,9 @@ export class StaffRTC {
           const callData = this.activeCalls.get(callId);
           if (callData) {
             (callData as any).remoteStream = remoteStream;
+          }
+          if (onRemoteStream) {
+            onRemoteStream(remoteStream);
           }
         }
       };

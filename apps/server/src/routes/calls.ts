@@ -9,6 +9,7 @@ import { CallRepository } from '../repositories/CallRepository.js';
 import { StaffAvailabilityRepository } from '../repositories/StaffAvailabilityRepository.js';
 import { Call, CallParticipant, CallStatus } from '../models/Call.js';
 import { Server as IOServer } from 'socket.io';
+import { queuePendingCallNotification, clearPendingCallNotification } from '../utils/pendingNotifications.js';
 
 const NAMESPACE = '/rtc';
 const RING_TIMEOUT_MS = 45000; // 45 seconds
@@ -118,25 +119,30 @@ export function createCallRoutes(
       if (targetStaffId) {
         // Normalize targetStaffId - convert short code (e.g., "acs") to email prefix (e.g., "anithacs")
         const normalizedStaffId = normalizeStaffId(targetStaffId);
-        console.log(`[Calls API] Normalized staffId: ${targetStaffId} -> ${normalizedStaffId}`);
-        
-        // Direct call to specific staff - try multiple formats:
-        // 1. Try with @gmail.com suffix (full email) - most common format
-        // 2. Try normalized staffId (email prefix)
-        // 3. Try original targetStaffId
-        const emailFormat = `${normalizedStaffId}@gmail.com`;
-        let availability = await availabilityRepo.getAvailability(emailFormat, effectiveOrgId);
-        if (!availability || availability.status !== 'available') {
-          availability = await availabilityRepo.getAvailability(normalizedStaffId, effectiveOrgId);
-        }
-        if (!availability || availability.status !== 'available') {
-          availability = await availabilityRepo.getAvailability(targetStaffId, effectiveOrgId);
-        }
-        
-        if (availability && availability.status === 'available') {
-          // Use the userId from availability record (which has the correct format)
-          // but use normalized staffId for room emission
-          availableStaff = [{ userId: availability.userId, staffId: normalizedStaffId }];
+        console.log(`[Calls API] Normalized target staffId: ${targetStaffId} -> ${normalizedStaffId}`);
+
+        const targetLower = targetStaffId.toLowerCase();
+        const normalizedLower = normalizedStaffId.toLowerCase();
+
+        // Pull current availability list once and match by either full id or prefix
+        const staffList = await availabilityRepo.findAvailableStaff(effectiveOrgId);
+        const matchedStaff = staffList.find((record) => {
+          const userLower = record.userId.toLowerCase();
+          const prefixLower = userLower.includes('@') ? userLower.split('@')[0] : userLower;
+          return (
+            record.status === 'available' &&
+            (userLower === targetLower ||
+              userLower === normalizedLower ||
+              prefixLower === targetLower ||
+              prefixLower === normalizedLower)
+          );
+        });
+
+        if (matchedStaff) {
+          const matchedStaffId = matchedStaff.userId.includes('@')
+            ? matchedStaff.userId.split('@')[0]
+            : matchedStaff.userId;
+          availableStaff = [{ userId: matchedStaff.userId, staffId: normalizeStaffId(matchedStaffId) }];
         }
       } else {
         // Find available staff in org/department
@@ -144,7 +150,21 @@ export function createCallRoutes(
           effectiveOrgId,
           department ? [department] : undefined
         );
-        availableStaff = staffList.map(s => ({ userId: s.userId, staffId: s.userId }));
+        availableStaff = staffList.map(s => ({
+          userId: s.userId,
+          staffId: normalizeStaffId(s.userId.includes('@') ? s.userId.split('@')[0] : s.userId),
+        }));
+      }
+
+      console.log('[Calls API] Available staff for routing:', availableStaff.map(s => ({ userId: s.userId, staffId: s.staffId })));
+      for (const staff of availableStaff) {
+        participants.push({
+          id: uuid(),
+          callId,
+          userId: staff.userId,
+          role: 'staff',
+          state: 'invited',
+        });
       }
 
       if (availableStaff.length === 0) {
@@ -187,14 +207,62 @@ export function createCallRoutes(
 
       for (const staff of availableStaff) {
         const staffIdForRoom = staff.staffId || staff.userId;
-        const staffRoom = rooms.staff(staffIdForRoom);
-        console.log(`[Calls API] Emitting to staff room: ${staffRoom} (staffId: ${staffIdForRoom})`);
-        nsp.to(staffRoom).emit('call.initiated', {
+        const normalizedStaffId = normalizeStaffId(staffIdForRoom);
+        const staffRoom = rooms.staff(normalizedStaffId);
+        console.log(`[Calls API] Emitting to staff room: ${staffRoom} (staffId: ${normalizedStaffId})`);
+
+        const payload = {
           callId,
           client: clientInfo,
           reason,
           createdAt: now,
-        });
+        };
+
+        const socketsInRoom = await nsp.in(staffRoom).fetchSockets();
+        console.log(`[Calls API] Room ${staffRoom} currently has ${socketsInRoom.length} socket(s)`);
+        if (socketsInRoom.length > 0) {
+          nsp.to(staffRoom).emit('call.initiated', payload);
+          socketsInRoom.forEach((socketInstance) => {
+            try {
+              socketInstance.emit('call.initiated', payload);
+            } catch (socketError) {
+              console.error(`[Calls API] Failed direct emit to socket ${socketInstance.id}:`, socketError);
+            }
+          });
+          clearPendingCallNotification(normalizedStaffId, callId);
+        } else {
+          const namespaceSockets = await nsp.fetchSockets();
+          const directSockets = namespaceSockets.filter((socketInstance) => {
+            const socketUser = (socketInstance as any).user as AuthPayload | undefined;
+            if (!socketUser || socketUser.role !== 'staff') {
+              return false;
+            }
+            const socketStaffId = socketUser.staffId || (socketUser.userId.includes('@') ? socketUser.userId.split('@')[0] : socketUser.userId);
+            return socketStaffId?.toLowerCase() === normalizedStaffId.toLowerCase();
+          });
+
+          if (directSockets.length > 0) {
+            console.log(`[Calls API] Directly emitting call.initiated to ${directSockets.length} matched socket(s) for staff ${normalizedStaffId}`);
+            directSockets.forEach((socketInstance) => {
+              socketInstance.emit('call.initiated', payload);
+            });
+            clearPendingCallNotification(normalizedStaffId, callId);
+          } else {
+            console.log(`[Calls API] No active sockets in ${staffRoom}. Queueing notification.`);
+            queuePendingCallNotification(normalizedStaffId, {
+              callId,
+              payload,
+              queuedAt: Date.now(),
+            });
+          }
+        }
+
+        if (targetStaffId) {
+          nsp.to(rooms.org(effectiveOrgId)).emit('call.initiated', {
+            ...payload,
+            targetStaffId: normalizedStaffId,
+          });
+        }
       }
 
       // Only broadcast to the entire organisation when no specific staff target was provided
@@ -245,6 +313,12 @@ export function createCallRoutes(
       const staffParticipant = participants.find(p => p.userId === staffId && p.role === 'staff');
       if (staffParticipant) {
         // TODO: Update participant state to 'joined'
+      }
+
+      // Clear queued notifications for all staff on this call
+      for (const participant of participants.filter(p => p.role === 'staff')) {
+        const participantStaffId = normalizeStaffId(participant.userId);
+        clearPendingCallNotification(participantStaffId, callId);
       }
 
       // Emit call.accepted to all parties
@@ -300,12 +374,22 @@ export function createCallRoutes(
       // Update status
       await callRepo.updateStatus(callId, 'declined', { reason });
 
-      // Emit to client
+      // Emit decline notifications
       const nsp = io.of(NAMESPACE);
-      nsp.to(rooms.client(call.createdByUserId)).emit('call.declined', {
+      const declinePayload = {
         callId,
         reason: reason || 'Call declined by staff',
+      };
+
+      nsp.to(rooms.client(call.createdByUserId)).emit('call.declined', declinePayload);
+      nsp.to(rooms.call(callId)).emit('call.declined', declinePayload);
+      nsp.to(rooms.org(call.orgId)).emit('call.declined', {
+        ...declinePayload,
+        staffId: user.staffId || user.userId,
       });
+
+      const staffId = user.staffId || user.userId;
+      clearPendingCallNotification(normalizeStaffId(staffId), callId);
 
       nsp.to(rooms.call(callId)).emit('call:update', {
         callId,
@@ -347,6 +431,11 @@ export function createCallRoutes(
       nsp.to(rooms.org(call.orgId)).emit('call.canceled', { callId });
       nsp.to(rooms.call(callId)).emit('call:update', { callId, state: 'canceled' });
 
+      const participants = await callRepo.getParticipants(callId);
+      for (const participant of participants.filter(p => p.role === 'staff')) {
+        clearPendingCallNotification(normalizeStaffId(participant.userId), callId);
+      }
+
       res.json({ callId, status: 'canceled' });
     } catch (error: any) {
       console.error('[Calls API] Error canceling call:', error);
@@ -387,11 +476,16 @@ export function createCallRoutes(
         return res.status(403).json({ error: 'Not a participant in this call' });
       }
 
-      await callRepo.updateStatus(callId, 'ended', { endedAt: Date.now() });
+      await callRepo.updateStatus(callId, 'ended', { endedAt: Date.now(), endedBy: user.userId });
 
       const nsp = io.of(NAMESPACE);
+      nsp.to(rooms.org(call.orgId)).emit('call.ended', { callId, endedBy: user.userId });
       nsp.to(rooms.call(callId)).emit('call:update', { callId, state: 'ended' });
-      nsp.to(rooms.client(call.createdByUserId)).emit('call.ended', { callId });
+
+      const participants = await callRepo.getParticipants(callId);
+      for (const participant of participants.filter(p => p.role === 'staff')) {
+        clearPendingCallNotification(normalizeStaffId(participant.userId), callId);
+      }
 
       res.json({ callId, status: 'ended' });
     } catch (error: any) {

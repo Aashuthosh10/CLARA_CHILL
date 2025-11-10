@@ -117,6 +117,177 @@ const STAFF_DIRECTORY: Record<string, { displayName: string; shortCode: string }
   'bhavyatn@gmail.com': { displayName: 'Prof. Bhavya T N', shortCode: 'btn' },
 };
 
+const WEEK_DAYS: Array<keyof FacultyTimetable['schedule']> = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+const DEFAULT_TIME_SLOTS = [
+  '08:30-09:25',
+  '09:25-10:20',
+  '10:20-10:40',
+  '10:40-11:35',
+  '11:35-12:30',
+  '12:30-01:15',
+  '01:15-02:10',
+  '02:10-03:05',
+  '03:05-04:00',
+] as const;
+
+const DEFAULT_TIME_SLOT_ORDER = new Map<string, number>(DEFAULT_TIME_SLOTS.map((slot, index) => [slot, index]));
+
+type StaffLookupEntry = {
+  email: string;
+  displayName: string;
+  shortCode: string;
+  facultyId: string;
+};
+
+type TimetableEntry =
+  FacultyTimetable['schedule'][keyof FacultyTimetable['schedule']] extends Array<infer U> ? U : never;
+
+function normalizeFacultyId(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+const STAFF_LOOKUP: StaffLookupEntry[] = Object.entries(STAFF_DIRECTORY).map(([email, meta]) => {
+  const facultyId = normalizeFacultyId(email.split('@')[0] || email);
+  return {
+    email,
+    displayName: meta.displayName,
+    shortCode: meta.shortCode.toLowerCase(),
+    facultyId,
+  };
+});
+
+function resolveStaffIdentifier(identifier: string): StaffLookupEntry | null {
+  const normalized = identifier.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.includes('@')) {
+    const directEmail = STAFF_LOOKUP.find((entry) => entry.email.toLowerCase() === normalized);
+    if (directEmail) {
+      return directEmail;
+    }
+    const prefix = normalized.split('@')[0] || normalized;
+    const facultyId = normalizeFacultyId(prefix);
+    const byPrefix = STAFF_LOOKUP.find((entry) => entry.facultyId === facultyId);
+    if (byPrefix) {
+      return byPrefix;
+    }
+  }
+
+  const cleaned = normalized.replace(/[^a-z0-9]/g, '');
+
+  const byShort = STAFF_LOOKUP.find((entry) => entry.shortCode === cleaned);
+  if (byShort) {
+    return byShort;
+  }
+
+  const byFacultyId = STAFF_LOOKUP.find((entry) => entry.facultyId === cleaned);
+  if (byFacultyId) {
+    return byFacultyId;
+  }
+
+  const byName = STAFF_LOOKUP.find((entry) => {
+    const nameLower = entry.displayName.toLowerCase();
+    return nameLower.includes(normalized) || normalized.includes(nameLower);
+  });
+  if (byName) {
+    return byName;
+  }
+
+  return null;
+}
+
+function parseTimeToMinutes(range: string): number {
+  const [start] = range.split('-');
+  if (!start) return Number.POSITIVE_INFINITY;
+  const [rawHour, rawMinute] = start.split(':');
+  const hour = rawHour ? parseInt(rawHour, 10) : NaN;
+  const minute = rawMinute ? parseInt(rawMinute, 10) : 0;
+
+  if (Number.isNaN(hour)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  // Treat early-hour values (1,2,3,4,5) as afternoon slots.
+  const normalizedHour = hour < 7 ? hour + 12 : hour;
+  return normalizedHour * 60 + minute;
+}
+
+function sortTimeSlots(slots: string[]): string[] {
+  return [...slots].sort((a, b) => {
+    const indexA = DEFAULT_TIME_SLOT_ORDER.has(a) ? DEFAULT_TIME_SLOT_ORDER.get(a)! : Number.POSITIVE_INFINITY;
+    const indexB = DEFAULT_TIME_SLOT_ORDER.has(b) ? DEFAULT_TIME_SLOT_ORDER.get(b)! : Number.POSITIVE_INFINITY;
+    if (indexA !== indexB) {
+      return indexA - indexB;
+    }
+    return parseTimeToMinutes(a) - parseTimeToMinutes(b);
+  });
+}
+
+function isFreeEntry(entry?: TimetableEntry | null): boolean {
+  if (!entry) return true;
+  const classType = (entry.classType || '').toLowerCase();
+  if (classType === 'free') return true;
+  const subject = (entry.subject || '').toLowerCase();
+  if (!subject) return true;
+  return subject.includes('free') || subject.includes('break') || subject.includes('lunch');
+}
+
+function computeAvailabilityFromTimetable(timetable: FacultyTimetable, dayFilter?: string) {
+  const allSlotsSet = new Set<string>(DEFAULT_TIME_SLOTS);
+
+  WEEK_DAYS.forEach((day) => {
+    const entries = timetable.schedule[day] || [];
+    entries.forEach((entry) => {
+      if (entry?.time) {
+        allSlotsSet.add(entry.time);
+      }
+    });
+  });
+
+  const allSlots = sortTimeSlots(Array.from(allSlotsSet));
+  const filter = dayFilter ? dayFilter.trim().toLowerCase() : null;
+
+  const availability = WEEK_DAYS.flatMap((day) => {
+    if (filter && day.toLowerCase() !== filter) {
+      return [];
+    }
+
+    const entries = timetable.schedule[day] || [];
+    const entryMap = new Map(entries.map((entry) => [entry.time, entry]));
+
+    const freeSlots: string[] = [];
+    const busySlots: Array<{ time: string; subject: string; classType?: string; batch?: string }> = [];
+
+    allSlots.forEach((slot) => {
+      const entry = entryMap.get(slot);
+      if (!entry || isFreeEntry(entry)) {
+        freeSlots.push(slot);
+      } else {
+        busySlots.push({
+          time: slot,
+          subject: entry.subject,
+          classType: entry.classType,
+          batch: entry.batch,
+        });
+      }
+    });
+
+    return [
+      {
+        day,
+        freeSlots,
+        busySlots,
+        nextFreeSlot: freeSlots[0] || null,
+      },
+    ];
+  });
+
+  return availability;
+}
+
 async function seedDefaultAvailability() {
   try {
     const now = Date.now();
@@ -487,6 +658,56 @@ app.get('/api/timetables/semester/:semester', apiLimiter, authMiddleware, async 
   } catch (e) {
     console.error('Error fetching timetables for semester:', e);
     res.status(500).json({ error: 'Failed to fetch timetables' });
+  }
+});
+
+
+// Public endpoint to retrieve normalized availability summary for a staff member
+app.get('/api/public/staff/:identifier/availability', apiLimiter, async (req, res) => {
+  const { identifier } = req.params;
+  const semesterQuery = (req.query.semester as string | undefined)?.trim();
+  const dayQuery = (req.query.day as string | undefined)?.trim();
+
+  try {
+    const staffEntry = resolveStaffIdentifier(identifier);
+    if (!staffEntry) {
+      res.status(404).json({ error: 'Staff member not found' });
+      return;
+    }
+
+    let timetable: FacultyTimetable | null = null;
+    if (semesterQuery) {
+      timetable = await timetableRepo.get(staffEntry.facultyId, semesterQuery);
+    }
+
+    if (!timetable) {
+      timetable = await timetableRepo.getLatestForFaculty(staffEntry.facultyId);
+    }
+
+    if (!timetable) {
+      res.status(404).json({ error: 'No timetable data available for this staff member yet.' });
+      return;
+    }
+
+    const availability = computeAvailabilityFromTimetable(timetable, dayQuery);
+
+    res.json({
+      staff: {
+        name: staffEntry.displayName,
+        email: staffEntry.email,
+        shortName: staffEntry.shortCode.toUpperCase(),
+        facultyId: staffEntry.facultyId,
+      },
+      source: {
+        semester: timetable.semester,
+        updatedAt: timetable.updatedAt,
+      },
+      generatedAt: new Date().toISOString(),
+      availability,
+    });
+  } catch (error) {
+    console.error('Error generating staff availability summary:', error);
+    res.status(500).json({ error: 'Failed to generate staff availability summary' });
   }
 });
 

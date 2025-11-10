@@ -100,6 +100,55 @@ const MapIcon = ({size=16}) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"></path></svg>
 );
 
+const LocationCard = ({ location }: { location: Location }) => {
+    return (
+        <div className="location-card">
+            <div className="location-card-heading">
+                <div className="location-card-heading-main">
+                    <div className="location-card-title">{location.name}</div>
+                    <div className="location-card-meta">
+                        {location.room_number && (
+                            <span className="location-card-tag room">Room {location.room_number}</span>
+                        )}
+                        <span className="location-card-tag floor">{location.floor_name}</span>
+                    </div>
+                </div>
+                <div className="location-card-chip">
+                    <MapIcon size={16} />
+                    <span>{location.building}</span>
+                </div>
+            </div>
+            <div className="location-card-start">
+                <span className="location-card-label">Start from</span>
+                <p>{location.startingPoint}</p>
+            </div>
+            <div className="location-card-steps-wrapper">
+                <span className="location-card-label">Follow these steps</span>
+                <ol className="location-card-steps">
+                    {location.steps.map((step, index) => (
+                        <li key={`${location.key}-step-${index}`}>
+                            <div className="location-card-step-index">{index + 1}</div>
+                            <p>{step}</p>
+                        </li>
+                    ))}
+                </ol>
+            </div>
+            {location.citations.length > 0 && (
+                <div className="location-card-citations">
+                    <span className="location-card-label">Citations</span>
+                    <div className="location-card-citation-pills">
+                        {location.citations.map((cite) => (
+                            <span key={`${location.key}-cite-${cite}`} className="location-card-citation-pill">
+                                #{cite}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 const SVITLogo = () => {
     return (
         <svg className="svit-logo-image" viewBox="0 0 200 240" xmlns="http://www.w3.org/2000/svg">
@@ -204,6 +253,31 @@ const staffList = [
     { name: 'Dr. Bhavana A', shortName: 'BA', route: '/ba', email: 'bhavanaa@gmail.com' },
     { name: 'Prof. Bhavya T N', shortName: 'BTN', route: '/btn', email: 'bhavyatn@gmail.com' },
 ];
+
+const AVAILABILITY_KEYWORDS = [
+    'availability',
+    'available',
+    'free time',
+    'free slot',
+    'free slots',
+    'free period',
+    'free periods',
+    'free right now',
+    'when can i meet',
+    'when are they free',
+];
+
+const SUPPORTED_DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const SUPPORTED_DAY_SET = new Set(SUPPORTED_DAY_NAMES.map(day => day.toLowerCase()));
+const DAY_SYNONYMS = [
+    { value: 'Monday', patterns: ['monday', 'mon'] },
+    { value: 'Tuesday', patterns: ['tuesday', 'tue', 'tues'] },
+    { value: 'Wednesday', patterns: ['wednesday', 'wed'] },
+    { value: 'Thursday', patterns: ['thursday', 'thu', 'thur', 'thurs'] },
+    { value: 'Friday', patterns: ['friday', 'fri'] },
+    { value: 'Saturday', patterns: ['saturday', 'sat'] },
+];
+const DAY_NAME_LOOKUP = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const initiateVideoCallFunction: FunctionDeclaration = {
     name: 'initiateVideoCall',
@@ -558,6 +632,12 @@ const App = () => {
     // Accumulators for streaming transcriptions so full sentences are shown
     const inputAccumRef = useRef<string>('');
     const outputAccumRef = useRef<string>('');
+    const availabilityQueryInFlightRef = useRef(false);
+    const ttsVoicesRef = useRef<SpeechSynthesisVoice[]>([]);
+    const voiceLoadPromiseRef = useRef<Promise<void> | null>(null);
+    const lastTTSTextRef = useRef<string>('');
+    const lastTTSSpokeAtRef = useRef<number>(0);
+    const activeUtterancesRef = useRef<SpeechSynthesisUtterance[]>([]);
 
     // Merge incremental transcript chunks without duplicating words
     const appendDelta = (prev: string, next: string) => {
@@ -579,13 +659,15 @@ const App = () => {
         
         // Load TTS voices
         if ('speechSynthesis' in window) {
-            // Chrome needs voices to be loaded
-            const loadVoices = () => {
-                window.speechSynthesis.getVoices();
+            const refreshVoices = () => {
+                const voices = window.speechSynthesis.getVoices();
+                if (voices.length) {
+                    ttsVoicesRef.current = voices;
+                }
             };
-            loadVoices();
+            refreshVoices();
             if (window.speechSynthesis.onvoiceschanged !== undefined) {
-                window.speechSynthesis.onvoiceschanged = loadVoices;
+                window.speechSynthesis.onvoiceschanged = refreshVoices;
             }
         }
         
@@ -720,6 +802,45 @@ const App = () => {
         }
         // Session stays alive for next interaction - no logging needed
     }, []);
+
+    const finalizeCallSession = useCallback(
+        (message: string, options: { notifyServer?: boolean; showSummary?: boolean } = {}) => {
+            const { notifyServer = true, showSummary = true } = options;
+            callStore.endCall();
+            setToast({ type: 'ended', message });
+
+            const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            setMessages(prev => [...prev, { sender: 'clara', text: message, isFinal: true, timestamp }]);
+
+            if (activeCall && notifyServer) {
+                lastEndedCallIdRef.current = activeCall.callId;
+                if (unifiedCallService) {
+                    unifiedCallService.endCall(activeCall.callId);
+                } else {
+                    if (activeCall.stream) {
+                        activeCall.stream.getTracks().forEach(track => track.stop());
+                    }
+                    if (activeCall.remoteStream) {
+                        activeCall.remoteStream.getTracks().forEach(track => track.stop());
+                    }
+                }
+            } else {
+                lastEndedCallIdRef.current = null;
+            }
+
+            setActiveCall(null);
+            setView('chat');
+            setVideoCallTarget(null);
+            setShowEndSummary(showSummary);
+
+            if (sessionPromiseRef.current) {
+                setStatus('Clara is ready! Click the microphone to speak.');
+            } else {
+                setStatus('Click the microphone to speak');
+            }
+        },
+        [activeCall, unifiedCallService, callStore]
+    );
 
     // Actual call initiation function (called after confirmation)
     const startCallAfterConfirmation = useCallback(async (staffToCall: any) => {
@@ -1106,67 +1227,139 @@ const App = () => {
         return 'en';
     };
 
+    const ensureVoicesReady = (): Promise<void> => {
+        if (!('speechSynthesis' in window)) {
+            return Promise.resolve();
+        }
+        if (ttsVoicesRef.current.length) {
+            return Promise.resolve();
+        }
+        if (voiceLoadPromiseRef.current) {
+            return voiceLoadPromiseRef.current;
+        }
+        const promise = new Promise<void>((resolve) => {
+            let attempts = 0;
+            const maxAttempts = 40;
+            const tryLoad = () => {
+                const voices = window.speechSynthesis.getVoices();
+                if (voices.length) {
+                    ttsVoicesRef.current = voices;
+                    resolve();
+                    return;
+                }
+                attempts += 1;
+                if (attempts >= maxAttempts) {
+                    resolve();
+                    return;
+                }
+                setTimeout(tryLoad, 75);
+            };
+            tryLoad();
+        });
+        voiceLoadPromiseRef.current = promise;
+        promise.finally(() => {
+            voiceLoadPromiseRef.current = null;
+        });
+        return promise;
+    };
+
     // Helper function to speak text using TTS (browser's speechSynthesis)
     const speakWithTTS = (text: string, language?: string) => {
-        if (!('speechSynthesis' in window)) {
-            console.warn('Speech synthesis not supported');
-            return;
-        }
-        
-        // Clean text - remove markdown formatting
-        const cleanText = text
-            .replace(/\*\*/g, '') // Remove bold markers
-            .replace(/\*/g, '') // Remove italic markers
-            .replace(/#{1,6}\s/g, '') // Remove headers
-            .replace(/•/g, '') // Remove bullet points
-            .replace(/\n/g, ' ') // Replace newlines with spaces
-            .trim();
-        
-        if (!cleanText) return;
-        
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.rate = 0.9;
-        utterance.pitch = 1.1;
-        utterance.volume = 1.0;
-        
-        // Set language if provided
-        if (language) {
-            utterance.lang = language === 'te' ? 'te-IN' : 
-                           language === 'hi' ? 'hi-IN' : 
-                           language === 'ta' ? 'ta-IN' : 
-                           language === 'kn' ? 'kn-IN' : 
-                           language === 'ml' ? 'ml-IN' : 'en-US';
-        }
-        
-        const voices = window.speechSynthesis.getVoices();
-        const femaleVoiceNames = ['zira', 'hazel', 'susan', 'linda', 'karen', 'samantha', 'victoria', 'sarah', 'female'];
-        const preferredVoice = voices.find(v => {
-            const langMatch = language ? 
-                (language === 'te' && v.lang.startsWith('te')) ||
-                (language === 'hi' && v.lang.startsWith('hi')) ||
-                (language === 'ta' && v.lang.startsWith('ta')) ||
-                (language === 'kn' && v.lang.startsWith('kn')) ||
-                (language === 'ml' && v.lang.startsWith('ml')) ||
-                (!language && v.lang.startsWith('en')) :
-                v.lang.startsWith('en');
-            return langMatch && femaleVoiceNames.some(name => v.name.toLowerCase().includes(name));
-        }) || voices.find(v => language ? 
-            (language === 'te' && v.lang.startsWith('te')) ||
-            (language === 'hi' && v.lang.startsWith('hi')) ||
-            (language === 'ta' && v.lang.startsWith('ta')) ||
-            (language === 'kn' && v.lang.startsWith('kn')) ||
-            (language === 'ml' && v.lang.startsWith('ml')) :
-            v.lang.startsWith('en'));
-        
-        if (preferredVoice) {
-            utterance.voice = preferredVoice;
-        }
-        
-        utterance.onend = () => setStatus('Click the microphone to speak');
-        utterance.onerror = () => setStatus('Click the microphone to speak');
-        window.speechSynthesis.speak(utterance);
-        setStatus('Speaking...');
+        const speak = async () => {
+            if (!('speechSynthesis' in window)) {
+                console.warn('Speech synthesis not supported');
+                return;
+            }
+    
+            // Clean text - remove markdown formatting
+            const cleanText = text
+                .replace(/\*\*/g, '') // Remove bold markers
+                .replace(/\*/g, '') // Remove italic markers
+                .replace(/#{1,6}\s/g, '') // Remove headers
+                .replace(/•/g, '') // Remove bullet points
+                .replace(/\r?\n\s*[-•]\s*/g, ' ') // Remove list markers when present at line starts
+                .replace(/\n+/g, ' ') // Replace newlines with spaces
+                .replace(/\s{2,}/g, ' ') // Collapse repeated whitespace
+                .trim();
+    
+            if (!cleanText) {
+                return;
+            }
+
+            const now = Date.now();
+            const isSameAsLast = cleanText === lastTTSTextRef.current;
+            const stillSpeaking = window.speechSynthesis.speaking || window.speechSynthesis.pending;
+
+            await ensureVoicesReady();
+
+            if (stillSpeaking) {
+                if (isSameAsLast && activeUtterancesRef.current.length) {
+                    console.log('[TTS] Current utterance already speaking, skipping restart');
+                    return;
+                }
+                window.speechSynthesis.cancel();
+                activeUtterancesRef.current = [];
+                await new Promise((resolve) => setTimeout(resolve, 220));
+            } else if (isSameAsLast && now - lastTTSSpokeAtRef.current < 1800) {
+                console.log('[TTS] Skipping immediate repeat of identical text');
+                return;
+            }
+
+            const voices = ttsVoicesRef.current.length
+                ? ttsVoicesRef.current
+                : window.speechSynthesis.getVoices();
+            const femaleVoiceNames = ['zira', 'hazel', 'susan', 'linda', 'karen', 'samantha', 'victoria', 'sarah', 'female', 'alloy', 'aria'];
+            const matchesLanguage = (voice: SpeechSynthesisVoice) => {
+                if (!language) {
+                    return voice.lang?.toLowerCase().startsWith('en');
+                }
+                const lang = language.toLowerCase();
+                return voice.lang?.toLowerCase().startsWith(lang);
+            };
+            const preferredVoice = voices.find(v => matchesLanguage(v) && femaleVoiceNames.some(name => v.name.toLowerCase().includes(name)))
+                || voices.find(matchesLanguage)
+                || voices.find(v => v.lang?.toLowerCase().startsWith('en'));
+
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            utterance.rate = language && language !== 'en' ? 0.95 : 0.92;
+            utterance.pitch = 1.02;
+            utterance.volume = 1.0;
+            if (language) {
+                utterance.lang = language === 'te' ? 'te-IN' :
+                                 language === 'hi' ? 'hi-IN' :
+                                 language === 'ta' ? 'ta-IN' :
+                                 language === 'kn' ? 'kn-IN' :
+                                 language === 'ml' ? 'ml-IN' : 'en-US';
+            } else if (preferredVoice?.lang) {
+                utterance.lang = preferredVoice.lang;
+            }
+            if (preferredVoice) {
+                utterance.voice = preferredVoice;
+            }
+
+            utterance.onstart = () => {
+                activeUtterancesRef.current = [utterance];
+                lastTTSTextRef.current = cleanText;
+                lastTTSSpokeAtRef.current = Date.now();
+                setStatus('Speaking...');
+            };
+
+            const finish = () => {
+                activeUtterancesRef.current = [];
+                lastTTSSpokeAtRef.current = Date.now();
+                setStatus('Click the microphone to speak');
+            };
+
+            utterance.onend = finish;
+            utterance.onerror = (event) => {
+                console.error('Speech synthesis error:', event);
+                finish();
+            };
+
+            window.speechSynthesis.speak(utterance);
+        };
+
+        void speak();
     };
 
     // Helper function to generate Zephyr voice audio using Gemini (optional, falls back to TTS)
@@ -1226,7 +1419,9 @@ const App = () => {
             // Create a temporary session just for audio generation
             let sessionRef: any = null;
             let isSessionClosing = false;
-            
+            let hasReceivedAudio = false;
+            let didFallbackToTTS = false;
+
             const closeSessionSafely = () => {
                 if (!isSessionClosing && sessionRef) {
                     isSessionClosing = true;
@@ -1246,6 +1441,18 @@ const App = () => {
                         isSessionClosing = false;
                     }
                 }
+            };
+
+            const fallbackToTTS = (reason: string) => {
+                if (didFallbackToTTS) {
+                    return;
+                }
+                didFallbackToTTS = true;
+                console.warn('[Zephyr] Falling back to browser TTS:', reason);
+                closeSessionSafely();
+                setTimeout(() => {
+                    speakWithTTS(cleanText, language);
+                }, 50);
             };
             
             const tempSessionPromise = ai.live.connect({
@@ -1268,6 +1475,7 @@ const App = () => {
                         const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                         if (base64Audio) {
                             try {
+                                hasReceivedAudio = true;
                                 const decodedAudio = decode(base64Audio);
                                 const audioBuffer = await decodeAudioData(decodedAudio, outputAudioContextRef.current, 24000, 1);
                                 
@@ -1300,11 +1508,20 @@ const App = () => {
                                 console.error('Error processing Zephyr audio:', error);
                                 setStatus('Click the microphone to speak');
                                 closeSessionSafely();
+                                fallbackToTTS('Zephyr audio decode failed');
                             }
                         }
                         
                         // Check if turn is complete - but don't close immediately, wait for all audio to finish
                         if (message.serverContent?.turnComplete) {
+                            if (!hasReceivedAudio) {
+                                // No audio chunks arrived, fallback quickly
+                                setTimeout(() => {
+                                    if (!hasReceivedAudio && sourcesRef.current.size === 0) {
+                                        fallbackToTTS('Zephyr returned turnComplete without audio');
+                                    }
+                                }, 150);
+                            }
                             // Mark that turn is complete, but let audio finish playing
                             // The session will close when all audio sources finish (in onended handler)
                             console.log('[Zephyr] Turn complete, waiting for audio to finish...');
@@ -1314,10 +1531,14 @@ const App = () => {
                         console.error('Zephyr audio generation error:', e);
                         setStatus('Click the microphone to speak');
                         closeSessionSafely();
+                        fallbackToTTS('Zephyr onerror');
                     },
                     onclose: () => {
                         sessionRef = null;
                         isSessionClosing = false;
+                        if (!hasReceivedAudio && !didFallbackToTTS) {
+                            fallbackToTTS('Zephyr session closed without audio');
+                        }
                     }
                 },
                 config: {
@@ -1336,6 +1557,7 @@ const App = () => {
         } catch (error) {
             console.error('Error in Zephyr voice generation:', error);
             setStatus('Click the microphone to speak');
+            speakWithTTS(text, language);
         }
     };
 
@@ -1632,23 +1854,20 @@ const App = () => {
                         const locationResult = locationMatcher.extractLocationIntent(userText);
                         if (locationResult.location && locationResult.intent === 'navigate') {
                             const location = locationResult.location;
-                            const responseText = `The ${location.name} is on the ${location.floor_name}. ${location.description} I'll show you the way on the map.`;
-                            
-                            // Add Clara's response with map
                             const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                            const responseText = `Here is how to reach the ${location.name} from the main entrance.`;
+                            
+                            setCurrentLocation(location);
+                            setCurrentFloor(location.floor);
+                            
                             updated.push({
                                 sender: 'clara',
                                 text: responseText,
                                 isFinal: true,
                                 timestamp,
-                                hasMap: true,
-                                locationData: location
+                                locationData: location,
+                                locationCard: { location }
                             });
-                            
-                            // Show map
-                            setCurrentLocation(location);
-                            setCurrentFloor(location.floor);
-                            setShowMap(true);
                         }
                     }
                     // Finalize last Clara message (only if not a college query)
@@ -1926,45 +2145,6 @@ You are CLARA, the official, friendly, and professional AI receptionist for Sai 
             setMessages([{ sender: 'clara', text: welcomeText, isFinal: true, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
         }
     };
-
-    const finalizeCallSession = useCallback(
-        (message: string, options: { notifyServer?: boolean; showSummary?: boolean } = {}) => {
-            const { notifyServer = true, showSummary = true } = options;
-            callStore.endCall();
-            setToast({ type: 'ended', message });
-
-            const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            setMessages(prev => [...prev, { sender: 'clara', text: message, isFinal: true, timestamp }]);
-
-            if (activeCall && notifyServer) {
-                lastEndedCallIdRef.current = activeCall.callId;
-                if (unifiedCallService) {
-                    unifiedCallService.endCall(activeCall.callId);
-                } else {
-                    if (activeCall.stream) {
-                        activeCall.stream.getTracks().forEach(track => track.stop());
-                    }
-                    if (activeCall.remoteStream) {
-                        activeCall.remoteStream.getTracks().forEach(track => track.stop());
-                    }
-                }
-            } else {
-                lastEndedCallIdRef.current = null;
-            }
-
-            setActiveCall(null);
-            setView('chat');
-            setVideoCallTarget(null);
-            setShowEndSummary(showSummary);
-
-            if (sessionPromiseRef.current) {
-                setStatus('Clara is ready! Click the microphone to speak.');
-            } else {
-                setStatus('Click the microphone to speak');
-            }
-        },
-        [activeCall, unifiedCallService, callStore]
-    );
 
     const handleEndCall = () => {
         const staffName = videoCallTarget?.name || 'Staff';
@@ -2370,7 +2550,138 @@ You are CLARA, the official, friendly, and professional AI receptionist for Sai 
                             </div>
                             <div className="message-content">
                                 <p>{msg.text}</p>
-                                {msg.hasMap && msg.locationData && (
+                                {msg.availabilityTable && (
+                                    <div
+                                        className="availability-table"
+                                        style={{
+                                            marginTop: '0.5rem',
+                                            border: '1px solid rgba(99,102,241,0.2)',
+                                            borderRadius: '12px',
+                                            overflow: 'hidden',
+                                            boxShadow: '0 6px 16px rgba(15, 23, 42, 0.08)',
+                                        }}
+                                    >
+                                        <table
+                                            style={{
+                                                width: '100%',
+                                                borderCollapse: 'collapse',
+                                                backgroundColor: 'rgba(255,255,255,0.85)',
+                                            }}
+                                        >
+                                            <thead style={{ backgroundColor: 'rgba(79, 70, 229, 0.08)' }}>
+                                                <tr>
+                                                    <th
+                                                        style={{
+                                                            textAlign: 'left',
+                                                            padding: '10px 12px',
+                                                            fontWeight: 600,
+                                                            fontSize: '0.85rem',
+                                                            color: '#3730a3',
+                                                        }}
+                                                    >
+                                                        Day
+                                                    </th>
+                                                    <th
+                                                        style={{
+                                                            textAlign: 'left',
+                                                            padding: '10px 12px',
+                                                            fontWeight: 600,
+                                                            fontSize: '0.85rem',
+                                                            color: '#3730a3',
+                                                        }}
+                                                    >
+                                                        Free Slots
+                                                    </th>
+                                                    <th
+                                                        style={{
+                                                            textAlign: 'left',
+                                                            padding: '10px 12px',
+                                                            fontWeight: 600,
+                                                            fontSize: '0.85rem',
+                                                            color: '#3730a3',
+                                                        }}
+                                                    >
+                                                        Busy Classes
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {(msg.availabilityTable.rows || []).map((row: any, rowIdx: number) => {
+                                                    const isHighlighted =
+                                                        !!msg.availabilityTable?.requestedDay &&
+                                                        msg.availabilityTable.requestedDay === row.day;
+                                                    const busyText = Array.isArray(row.busySlots) && row.busySlots.length > 0
+                                                        ? row.busySlots
+                                                            .map((slot: any) => {
+                                                                const parts: string[] = [];
+                                                                if (slot.time) parts.push(slot.time);
+                                                                if (slot.subject) parts.push(slot.subject);
+                                                                if (slot.classType) parts.push(`(${slot.classType})`);
+                                                                if (slot.batch) parts.push(slot.batch);
+                                                                return parts.join(' ');
+                                                            })
+                                                            .join(' • ')
+                                                        : '—';
+                                                    return (
+                                                        <tr
+                                                            key={`${row.day}-${rowIdx}`}
+                                                            style={{
+                                                                backgroundColor: isHighlighted
+                                                                    ? 'rgba(129, 140, 248, 0.12)'
+                                                                    : rowIdx % 2 === 0
+                                                                        ? 'rgba(255,255,255,0.95)'
+                                                                        : 'rgba(249,250,251,0.9)',
+                                                            }}
+                                                        >
+                                                            <td style={{ padding: '10px 12px', fontWeight: 500 }}>{row.day}</td>
+                                                            <td style={{ padding: '10px 12px' }}>
+                                                                {Array.isArray(row.freeSlots) && row.freeSlots.length > 0
+                                                                    ? row.freeSlots.join(', ')
+                                                                    : 'No free slots recorded'}
+                                                            </td>
+                                                            <td style={{ padding: '10px 12px', color: '#4b5563' }}>
+                                                                {busyText}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                        <div
+                                            style={{
+                                                display: 'flex',
+                                                flexWrap: 'wrap',
+                                                gap: '8px',
+                                                padding: '10px 12px',
+                                                backgroundColor: 'rgba(248, 250, 252, 0.9)',
+                                                fontSize: '0.75rem',
+                                                color: '#475569',
+                                            }}
+                                        >
+                                            <span style={{ fontWeight: 600 }}>
+                                                {msg.availabilityTable.staffName}
+                                            </span>
+                                            {msg.availabilityTable.semester && (
+                                                <span>• {msg.availabilityTable.semester}</span>
+                                            )}
+                                            {msg.availabilityTable.updatedAt && (
+                                                <span>
+                                                    • Updated{' '}
+                                                    {new Date(msg.availabilityTable.updatedAt).toLocaleString([], {
+                                                        hour: '2-digit',
+                                                        minute: '2-digit',
+                                                        day: 'numeric',
+                                                        month: 'short',
+                                                    })}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                                {msg.locationCard && (
+                                    <LocationCard location={msg.locationCard.location} />
+                                )}
+                                {msg.hasMap && msg.locationData && !msg.locationCard && (
                                     <button 
                                         className="btn-show-map"
                                         onClick={() => {

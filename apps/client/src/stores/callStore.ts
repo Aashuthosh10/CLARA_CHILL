@@ -37,6 +37,8 @@ interface CallStore {
   setDialing: (callId: string) => void;
   setRinging: () => void;
   setConnecting: () => void;
+  setLocalStream: (stream?: MediaStream | null) => void;
+  updateCallData: (data: Partial<CallData>) => void;
   setInCall: (data: Partial<CallData>) => void;
   cancelCall: () => void;
   onAccepted: (callId: string, staffInfo?: { id: string; name: string }) => void;
@@ -127,6 +129,24 @@ export const useCallStore = create<CallStore>((set, get) => ({
     }
     
     set({ state: 'connecting' });
+  },
+
+  setLocalStream: (stream?: MediaStream | null) => {
+    set({
+      callData: {
+        ...get().callData,
+        localStream: stream ?? undefined,
+      },
+    });
+  },
+
+  updateCallData: (data: Partial<CallData>) => {
+    set({
+      callData: {
+        ...get().callData,
+        ...data,
+      },
+    });
   },
 
   setInCall: (data: Partial<CallData>) => {

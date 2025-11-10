@@ -1,5 +1,5 @@
 // Location Matching Service using NLP techniques
-import { BUILDING_LOCATIONS, Location } from './locationsDatabase';
+import { ALL_LOCATIONS, Location } from './locationsDatabase';
 
 export interface LocationMatchResult {
   intent: 'navigate' | 'info' | 'unknown';
@@ -11,27 +11,7 @@ class LocationMatcher {
   private allLocations: Location[] = [];
 
   constructor() {
-    this.allLocations = this.flattenLocations();
-  }
-
-  private flattenLocations(): Location[] {
-    const flattened: Location[] = [];
-    for (const floorKey in BUILDING_LOCATIONS) {
-      const floorData = BUILDING_LOCATIONS[floorKey];
-      const floorNum = floorData.floor_number;
-      const floorName = floorData.floor_name;
-      
-      for (const locKey in floorData.locations) {
-        const locData = floorData.locations[locKey];
-        flattened.push({
-          ...locData,
-          floor: floorNum,
-          floor_name: floorName,
-          key: locKey
-        });
-      }
-    }
-    return flattened;
+    this.allLocations = [...ALL_LOCATIONS];
   }
 
   private similarity(a: string, b: string): number {

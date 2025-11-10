@@ -1,6 +1,7 @@
 import { Namespace } from 'socket.io';
 import { CallRepository as OldCallRepository } from './repository.js';
 import { CallRepository } from './repositories/CallRepository.js';
+import { consumePendingCallNotifications, clearPendingCallNotification } from './utils/pendingNotifications.js';
 
 type AppointmentRepository = {
   findByStaff: (staffId: string, filter?: { status?: string }) => Promise<any[]>;
@@ -57,6 +58,27 @@ export function setupSocketHandlers(
         const sUser = (s as any).user;
         console.log(`[Socket]   - Socket ${s.id}: userId=${sUser?.userId}, staffId=${sUser?.staffId}`);
       });
+
+      const queuedNotifications = consumePendingCallNotifications(staffId);
+      for (const notification of queuedNotifications) {
+        let shouldEmit = true;
+        if (newCallRepo) {
+          try {
+            const call = await newCallRepo.get(notification.callId);
+            if (call && call.status && call.status !== 'ringing' && call.status !== 'initiated') {
+              shouldEmit = false;
+              clearPendingCallNotification(staffId, notification.callId);
+            }
+          } catch (error) {
+            console.error(`[Socket] Failed to validate queued call ${notification.callId}:`, error);
+          }
+        }
+
+        if (shouldEmit) {
+          console.log(`[Socket] Delivering queued call.initiated for call ${notification.callId} to staff ${staffId}`);
+          socket.emit('call.initiated', notification.payload);
+        }
+      }
       
       if (user.dept) {
         const deptRoom = rooms.dept(user.dept);
@@ -126,6 +148,31 @@ export function setupSocketHandlers(
             console.log(`[Socket]   - Socket ${s.id}: userId=${sUser?.userId}, staffId=${sUser?.staffId}`);
           });
         });
+
+        const queuedNotifications = consumePendingCallNotifications(staffId);
+        if (queuedNotifications.length > 0) {
+          (async () => {
+            for (const notification of queuedNotifications) {
+              let shouldEmit = true;
+              if (newCallRepo) {
+                try {
+                  const call = await newCallRepo.get(notification.callId);
+                  if (call && call.status && call.status !== 'ringing' && call.status !== 'initiated') {
+                    shouldEmit = false;
+                    clearPendingCallNotification(staffId, notification.callId);
+                  }
+                } catch (error) {
+                  console.error(`[Socket] Failed to validate queued call ${notification.callId}:`, error);
+                }
+              }
+
+              if (shouldEmit) {
+                console.log(`[Socket] Delivering queued call.initiated for call ${notification.callId} to staff ${staffId}`);
+                socket.emit('call.initiated', notification.payload);
+              }
+            }
+          })();
+        }
         } else {
           console.error(`[Socket] ❌ join:staff REJECTED - staffId mismatch`);
           console.error(`[Socket] Expected: staffId=${staffId}`);
@@ -229,9 +276,15 @@ export function setupSocketHandlers(
         if (call) {
           await newCallRepo.updateStatus(callId, 'declined', { reason });
           // Emit new event names
-          nsp.to(rooms.client(call.createdByUserId)).emit('call.declined', {
+          const declinePayload = {
             callId,
             reason: reason || 'Call declined by staff',
+          };
+          nsp.to(rooms.client(call.createdByUserId)).emit('call.declined', declinePayload);
+          nsp.to(rooms.call(callId)).emit('call.declined', declinePayload);
+          nsp.to(rooms.org(call.orgId)).emit('call.declined', {
+            ...declinePayload,
+            staffId: user.staffId || user.userId,
           });
           nsp.to(rooms.call(callId)).emit('call:update', { callId, state: 'declined', reason });
           return;
@@ -247,6 +300,13 @@ export function setupSocketHandlers(
       sess.updated_at = Date.now();
       
       await oldCallRepo.update(sess);
+      const declinePayload = {
+        callId,
+        reason: reason || 'Call declined by staff',
+      };
+      const legacyClientId = (sess as any).client_id || (sess as any).clientId || callId;
+      nsp.to(rooms.client(legacyClientId)).emit('call.declined', declinePayload);
+      nsp.to(rooms.call(callId)).emit('call.declined', declinePayload);
       nsp.to(rooms.call(callId)).emit('call:update', { callId, state: 'declined', reason });
     });
 
